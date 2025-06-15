@@ -21,6 +21,7 @@ add_executable(windows_ai_agent_advanced
     task_planner.cpp
     advanced_executor.cpp
     multimodal_handler.cpp
+    http_server.cpp
 )
 
 target_include_directories(windows_ai_agent PRIVATE ${CURL_INCLUDE_DIR})

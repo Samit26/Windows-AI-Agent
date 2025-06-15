@@ -1,0 +1,39 @@
+{
+  "name": "windows-ai-agent-ui",
+  "version": "1.0.0",
+  "description": "Modern UI for Windows AI Agent",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "build": "vite build",
+    "build:electron": "npm run build && electron-builder",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "windows",
+    "automation"
+  ],
+  "author": "Windows AI Agent",
+  "license": "MIT",
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.5.2",
+    "axios": "^1.10.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
+    "lucide-react": "^0.515.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  }
+}

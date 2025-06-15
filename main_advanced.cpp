@@ -8,6 +8,7 @@
 #include "task_planner.h"
 #include "advanced_executor.h"
 #include "multimodal_handler.h"
+#include "http_server.h"
 
 using json = nlohmann::json;
 
@@ -18,11 +19,13 @@ private:
     TaskPlanner task_planner;
     AdvancedExecutor advanced_executor;
     MultiModalHandler multimodal_handler;
+    HttpServer http_server;
     bool interactive_mode;
     bool learning_enabled;
+    bool server_mode;
     
 public:
-    AdvancedAIAgent() : interactive_mode(true), learning_enabled(true) {
+    AdvancedAIAgent() : interactive_mode(true), learning_enabled(true), server_mode(false), http_server(8080) {
         loadConfiguration();
         displayWelcomeMessage();
     }
@@ -51,12 +54,22 @@ public:
                 multimodal_handler.enableVoiceInput();
             }
         }
-        
-        if (config.contains("enable_image_analysis")) {
+          if (config.contains("enable_image_analysis")) {
             bool image_enabled = config["enable_image_analysis"];
             if (image_enabled) {
                 multimodal_handler.enableImageAnalysis();
             }
+        }
+        
+        // Check for server mode
+        if (config.contains("server_mode")) {
+            server_mode = config["server_mode"];
+        }
+        
+        // Configure HTTP server if needed
+        if (server_mode) {
+            http_server.setComponents(&advanced_executor, &context_manager, 
+                                    &task_planner, &multimodal_handler, api_key);
         }
     }
       void displayWelcomeMessage() {
@@ -223,8 +236,40 @@ public:
             std::cout << "⚠️ Error: " << result.error_message << std::endl;
         }
         std::cout << "⏱️ Execution time: " << result.execution_time << "s" << std::endl;
+    }      void run() {
+        if (server_mode) {
+            runServerMode();
+        } else {
+            runInteractiveMode();
+        }
     }
-      void run() {
+    
+    void runServerMode() {
+        std::cout << "\n🌐 Starting HTTP Server Mode..." << std::endl;
+        
+        if (http_server.start()) {
+            std::cout << "✅ Server started successfully on port 8080" << std::endl;
+            std::cout << "🌐 Frontend can connect at: http://localhost:8080" << std::endl;
+            std::cout << "📋 Available endpoints:" << std::endl;
+            std::cout << "   POST /api/execute - Execute tasks" << std::endl;
+            std::cout << "   GET  /api/history - Get conversation history" << std::endl;
+            std::cout << "   GET  /api/system-info - Get system information" << std::endl;
+            std::cout << "   POST /api/preferences - Update user preferences" << std::endl;
+            std::cout << "   GET  /api/processes - Get active processes" << std::endl;
+            std::cout << "   POST /api/rollback - Rollback last action" << std::endl;
+            std::cout << "   GET  /api/suggestions - Get suggestions" << std::endl;
+            std::cout << "\n💡 Press Ctrl+C to stop the server" << std::endl;
+            
+            // Keep server running
+            while (http_server.isRunning()) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        } else {
+            std::cerr << "❌ Failed to start HTTP server" << std::endl;
+        }
+    }
+    
+    void runInteractiveMode() {
         while (true) {
             std::cout << "\n🤖 Enter your task (or ':quit' to exit): ";
             std::string user_input;
