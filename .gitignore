@@ -1,0 +1,46 @@
+# Compiled binaries
+*.exe
+*.obj
+*.dll
+*.lib
+*.a
+*.so
+
+# Build directories
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.make
+
+# Configuration files with sensitive data
+config.json
+sessions/
+temp/
+
+# Downloaded dependencies
+curl-*/
+libcurl_install/
+curl-downloads.html
+curl-source.zip
+
+# IDE and editor files
+.vscode/
+.vs/
+*.vcxproj*
+*.sln
+*.suo
+*.user
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Package manager files
+vcpkg_installed/

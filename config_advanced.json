@@ -1,0 +1,38 @@
+{
+  "api_key": "AIzaSyAqumnAOseC3kd77UgB0jTXxZ0G478Rs8I",
+  "execution_mode": "interactive",
+  "enable_voice": false,
+  "enable_image_analysis": false,
+  "advanced_features": {
+    "context_memory": true,
+    "task_planning": true,
+    "learning_enabled": true,
+    "session_management": true,
+    "safety_checks": true
+  },
+  "safety_settings": {
+    "sandbox_mode": true,
+    "confirmation_required": [
+      "file_deletion",
+      "system_modification",
+      "network_access",
+      "registry_changes"
+    ],
+    "blocked_commands": ["format", "del /f /q", "rm -rf", "shutdown"]
+  },
+  "voice_settings": {
+    "language": "en-US",
+    "timeout_seconds": 30,
+    "noise_reduction": true
+  },
+  "image_settings": {
+    "screenshot_quality": "high",
+    "ocr_enabled": true,
+    "ui_detection": true
+  },
+  "context_settings": {
+    "max_history_entries": 50,
+    "auto_save_interval": 300,
+    "context_window_size": 5
+  }
+}
