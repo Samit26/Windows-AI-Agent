@@ -1,0 +1,24 @@
+{
+  "appId": "com.windowsaiagent.app",
+  "productName": "Windows AI Agent",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": ["dist/**/*", "electron/**/*", "package.json"],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": "dmg"
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico"
+  },
+  "linux": {
+    "target": "AppImage",
+    "category": "Utility"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
