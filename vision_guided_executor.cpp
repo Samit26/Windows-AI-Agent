@@ -147,53 +147,9 @@ VisionTaskExecution VisionGuidedExecutor::executeVisionTask(const std::string &t
     std::cout << "📊 Task execution completed in " << execution.total_time << " seconds" << std::endl;    return execution;
 }
 
-// Helper function to parse JSON action from AI response
-json VisionGuidedExecutor::parseActionFromResponse(const std::string& response_text)
-{
-    try
-    {
-        // Method 1: Look for JSON in markdown blocks
-        size_t json_block_start = response_text.find("```json");
-        if (json_block_start != std::string::npos)
-        {
-            json_block_start += 7;
-            size_t json_block_end = response_text.find("```", json_block_start);
-            if (json_block_end != std::string::npos)
-            {
-                std::string json_str = response_text.substr(json_block_start, json_block_end - json_block_start);
-                json_str.erase(0, json_str.find_first_not_of(" \t\n\r"));
-                json_str.erase(json_str.find_last_not_of(" \t\n\r") + 1);
-                return json::parse(json_str);
-            }
-        }
-
-        // Method 2: Look for final JSON object
-        size_t last_brace = response_text.rfind("}");
-        if (last_brace != std::string::npos)
-        {
-            size_t json_start = response_text.find_last_of("{", last_brace);
-            if (json_start != std::string::npos)
-            {
-                std::string json_str = response_text.substr(json_start, last_brace - json_start + 1);
-                json_str.erase(0, json_str.find_first_not_of(" \t\n\r"));
-                json_str.erase(json_str.find_last_not_of(" \t\n\r") + 1);
-                return json::parse(json_str);
-            }
-        }
-    }
-    catch (const json::parse_error& e)
-    {
-        std::cerr << "❌ JSON parsing error: " << e.what() << std::endl;
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "❌ General error during JSON parsing: " << e.what() << std::endl;
-    }
-
-    return json::object();
-}
 
 // Helper function to create VisionAction from JSON
+// Note: parseActionFromResponse was removed as callVisionAIModel now returns direct JSON or a fallback.
 VisionAction VisionGuidedExecutor::createActionFromJson(const json& actionJson)
 {
     VisionAction action;
@@ -265,54 +221,39 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
         
         context += "\nDetermine the next action to accomplish the task. Focus on the main content area of the application.";
         
-        // Call DeepSeek R1 for vision guidance
-        json response = callVisionAIModel(ai_api_key, context);
+        // Call AI Model for vision guidance. This now returns a direct JSON object (the action itself)
+        // or a fallback JSON action from callVisionAIModel if it failed.
+        json actionJsonFromAI = callVisionAIModel(ai_api_key, context);
         
-        if (response.contains("choices") && !response["choices"].empty())
+        if (!actionJsonFromAI.empty() && actionJsonFromAI.contains("action_type"))
         {
-            auto& choice = response["choices"][0];
-            if (choice.contains("message") && choice["message"].contains("content"))
-            {
-                std::string content = choice["message"]["content"];
-                
-                // Parse the JSON action from the response
-                json actionJson = parseActionFromResponse(content);
-                
-                if (!actionJson.empty())
-                {
-                    action = createActionFromJson(actionJson);
-                }
-                else
-                {
-                    // Fallback action
-                    action.type = VisionActionType::WAIT;
-                    action.explanation = "Could not parse AI response, waiting";
-                    action.confidence = 0.1;
-                    action.wait_time = 1000;
-                }
-            }
+            action = createActionFromJson(actionJsonFromAI);
         }
         else
         {
-            // Fallback action
+            // This case handles if callVisionAIModel returned an empty json::object()
+            // or a json that doesn't conform to the expected action structure.
+            std::cerr << "❌ AI response in planNextAction is empty or missing action_type. Raw response from callVisionAIModel: "
+                      << actionJsonFromAI.dump(2) << std::endl;
             action.type = VisionActionType::WAIT;
-            action.explanation = "No valid AI response, waiting";
+            action.explanation = "AI response missing action_type or empty, waiting";
             action.confidence = 0.1;
-            action.wait_time = 1000;
+            action.wait_time = 2000; // Increased wait time for such errors
         }
     }
     catch (const std::exception& e)
     {
-        std::cout << "❌ Error planning action: " << e.what() << std::endl;
+        std::cerr << "❌ Exception in planNextAction: " << e.what() << std::endl; // Log to cerr for errors
         action.type = VisionActionType::WAIT;
         action.explanation = "Error in planning: " + std::string(e.what());
         action.confidence = 0.1;
-        action.wait_time = 1000;
+        action.wait_time = 2000; // Increased wait time
     }
     
     return action;
 }
 
+// TODO: Unit Test: Add tests for analyzeTaskIntelligently with various TaskComponents and ScreenAnalysis states.
 // Intelligent task analyzer that combines NLP parsing with vision guidance
 VisionAction VisionGuidedExecutor::analyzeTaskIntelligently(const std::string &task,
                                                             const ScreenAnalysis &current_state,
@@ -328,7 +269,11 @@ VisionAction VisionGuidedExecutor::analyzeTaskIntelligently(const std::string &t
     TaskComponents components = parseTaskComponents(task);
 
     // Analyze current progress
-    TaskProgress progress = analyzeTaskProgress(components, previous_steps, current_state); // Determine next intelligent action
+    TaskProgress progress = analyzeTaskProgress(components, previous_steps, current_state);
+
+    std::cout << "ℹ️ In analyzeTaskIntelligently: App Name from components: '" << components.appName << "'" << std::endl;
+
+    // Determine next intelligent action
     if (components.needsAppLaunch && !progress.appLaunched)
     {
         return planAppLaunchAction(components.targetApp, current_state);
@@ -336,41 +281,33 @@ VisionAction VisionGuidedExecutor::analyzeTaskIntelligently(const std::string &t
     else if (components.needsAppLaunch && progress.appLaunched && components.needsTyping && !progress.textTyped)
     {
         // App was launched, check if it's actually ready for typing
-        std::string currentApp = current_state.application_name;
-        std::transform(currentApp.begin(), currentApp.end(), currentApp.begin(), ::tolower);
+        std::string current_app_lower = current_state.application_name;
+        std::transform(current_app_lower.begin(), current_app_lower.end(), current_app_lower.begin(), ::tolower);
+        std::string component_app_name_lower = components.appName;
+        std::transform(component_app_name_lower.begin(), component_app_name_lower.end(), component_app_name_lower.begin(), ::tolower);
 
-        bool app_is_ready = false;
-        if (components.appName == "notepad" &&
-            (currentApp.find("notepad") != std::string::npos || currentApp.find("untitled") != std::string::npos))
-        {
-            // For Notepad, also check if there are proper text input elements detected
-            UIElement textArea = findBestTextInputElement(current_state);
-            if (textArea.confidence > 0.3 &&
-                textArea.type != "container" &&
-                textArea.text != "Taskbar" &&
-                textArea.text != "Start Button")
-            {
-                app_is_ready = true;
-                std::cout << "✅ Notepad is ready with text area: " << textArea.text << " (type: " << textArea.type << ")" << std::endl;
-            }
-            else
-            {
-                std::cout << "⏳ Notepad active but no suitable text area found yet. Best element: " << textArea.text << " (confidence: " << textArea.confidence << ")" << std::endl;
-            }
-        }
-        else if (currentApp.find(components.appName) != std::string::npos)
-        {
-            app_is_ready = true;
-        }
+        bool app_name_match = (!component_app_name_lower.empty() && current_app_lower.find(component_app_name_lower) != std::string::npos);
+
+        UIElement best_input_element = findBestTextInputElement(current_state);
+        // A high confidence here means a good, usable text input element was found by the generalized logic.
+        bool input_ready = best_input_element.confidence > 0.5 && !best_input_element.text.empty();
+
+        bool app_is_ready = app_name_match && input_ready;
+
+        std::cout << "ℹ️ App readiness check: Name match (" << app_name_match << "), Input ready (" << input_ready
+                  << ", element: '" << best_input_element.text << "', confidence: " << best_input_element.confidence
+                  << "). Overall app_is_ready: " << app_is_ready << std::endl;
 
         if (app_is_ready)
         {
             // App is active and ready, proceed with typing
+            std::cout << "✅ Application '" << components.appName << "' is ready for typing." << std::endl;
             return planTypingAction(components.textToType, current_state);
         }
         else
         {
             // App launched but not ready yet, wait longer
+            std::cout << "⏳ Application '" << components.appName << "' launched but not fully ready for input, or suitable input field not found. Waiting." << std::endl;
             return planWaitAction("Waiting for " + components.appName + " to be ready for text input", 3000);
         }
     }
@@ -399,6 +336,7 @@ VisionAction VisionGuidedExecutor::analyzeTaskIntelligently(const std::string &t
     }
 }
 
+// TODO: Unit Test: Add tests for parseTaskComponents, mocking callIntentAI and checking correct TaskComponents creation.
 // Parse task into actionable components using NLP techniques
 TaskComponents VisionGuidedExecutor::parseTaskComponents(const std::string &task)
 {
@@ -437,177 +375,19 @@ TaskComponents VisionGuidedExecutor::parseTaskComponents(const std::string &task
 
             return components;
         }
+        else
+        {
+            std::cerr << "❌ AI task parsing returned empty or invalid JSON from callIntentAI for task: " << task << std::endl;
+            // Return empty components to indicate failure
+            return TaskComponents();
+        }
     }
     catch (const std::exception &e)
     {
-        std::cout << "⚠️ AI task parsing failed, falling back to rule-based parsing: " << e.what() << std::endl;
+        std::cerr << "❌ Exception during AI task parsing (callIntentAI): " << e.what() << " for task: " << task << std::endl;
+        // Return empty components to indicate failure
+        return TaskComponents();
     }
-
-    // Fallback to simplified rule-based parsing if AI fails
-    std::string lower_task = task;
-    std::transform(lower_task.begin(), lower_task.end(), lower_task.begin(), ::tolower);
-
-    // Smart application detection based on task intent
-    components = detectApplicationIntent(lower_task);
-
-    // If no specific app detected, try to infer from context
-    if (!components.needsAppLaunch)
-    {
-        // Look for web-related keywords that suggest browser usage
-        std::vector<std::string> webKeywords = {
-            "youtube", "google", "search", "website", "browse", "online",
-            "facebook", "twitter", "instagram", "gmail", "email", "news",
-            "weather", "maps", "shopping", "netflix", "spotify", "twitch"};
-
-        for (const auto &keyword : webKeywords)
-        {
-            if (lower_task.find(keyword) != std::string::npos)
-            {
-                components.needsAppLaunch = true;
-                components.targetApp = "msedge.exe"; // Default browser
-                components.appName = "browser";
-                components.needsNavigation = true;
-
-                // Extract the web query/destination
-                if (keyword == "youtube" && lower_task.find("watch") != std::string::npos)
-                {
-                    components.navigationTarget = "https://youtube.com/results?search_query=" + extractSearchQuery(task, {"watch", "on", "youtube"});
-                }
-                else if (keyword == "weather")
-                {
-                    components.navigationTarget = "https://google.com/search?q=weather";
-                }
-                else if (keyword == "news")
-                {
-                    components.navigationTarget = "https://google.com/search?q=today+news";
-                }
-                else
-                {
-                    components.navigationTarget = "https://google.com/search?q=" + extractSearchQuery(task, {keyword});
-                }
-                break;
-            }
-        }
-
-        // Look for messaging apps
-        std::vector<std::string> messagingKeywords = {"whatsapp", "telegram", "discord", "slack", "teams", "skype"};
-        for (const auto &keyword : messagingKeywords)
-        {
-            if (lower_task.find(keyword) != std::string::npos)
-            {
-                components.needsAppLaunch = true;
-                if (keyword == "whatsapp")
-                {
-                    components.targetApp = "WhatsApp.exe"; // or try web version
-                    components.appName = "whatsapp";
-                }
-                else if (keyword == "discord")
-                {
-                    components.targetApp = "Discord.exe";
-                    components.appName = "discord";
-                }
-                // Add more messaging apps as needed
-
-                components.needsInteraction = true;
-                components.interactionTarget = extractContactName(task);
-                break;
-            }
-        }
-    } // Detect text input requirements
-    std::regex quote_regex("\"([^\"]+)\"|'([^']+)'");
-    std::smatch match;
-    if (std::regex_search(task, match, quote_regex))
-    {
-        components.needsTyping = true;
-        for (size_t i = 1; i <= 2; ++i)
-        {
-            if (match[i].matched)
-            {
-                components.textToType = match[i].str();
-                break;
-            }
-        }
-    }
-
-    // Detect typing action words
-    std::vector<std::string> typingWords = {"type", "write", "enter", "input", "fill"};
-    for (const auto &word : typingWords)
-    {
-        if (lower_task.find(word) != std::string::npos)
-        {
-            components.needsTyping = true;
-            if (components.textToType.empty())
-            {
-                // Try to extract text after typing word
-                size_t pos = lower_task.find(word);
-                if (pos != std::string::npos)
-                {
-                    pos += word.length();
-                    while (pos < lower_task.length() && std::isspace(lower_task[pos]))
-                        pos++;
-                    if (pos < lower_task.length())
-                    {
-                        size_t end = pos;
-                        while (end < lower_task.length() && !std::isspace(lower_task[end]))
-                            end++;
-                        if (end > pos)
-                        {
-                            components.textToType = task.substr(pos, end - pos);
-                        }
-                    }
-                }
-            }
-            break;
-        }
-    }
-
-    // Detect navigation requirements
-    std::vector<std::string> navWords = {"navigate", "go to", "browse", "visit", "open website", "search"};
-    for (const auto &word : navWords)
-    {
-        if (lower_task.find(word) != std::string::npos)
-        {
-            components.needsNavigation = true;
-            // Extract navigation target
-            size_t pos = lower_task.find(word);
-            if (pos != std::string::npos)
-            {
-                pos += word.length();
-                while (pos < lower_task.length() && std::isspace(lower_task[pos]))
-                    pos++;
-                if (pos < lower_task.length())
-                {
-                    components.navigationTarget = task.substr(pos);
-                }
-            }
-            break;
-        }
-    }
-
-    // Detect interaction requirements
-    std::vector<std::string> interactionWords = {"click", "press", "select", "choose", "tap"};
-    for (const auto &word : interactionWords)
-    {
-        if (lower_task.find(word) != std::string::npos)
-        {
-            components.needsInteraction = true;
-            // Extract interaction target
-            size_t pos = lower_task.find(word);
-            if (pos != std::string::npos)
-            {
-                pos += word.length();
-                while (pos < lower_task.length() && std::isspace(lower_task[pos]))
-                    pos++;
-                if (pos < lower_task.length())
-                {
-                    components.interactionTarget = task.substr(pos);
-                }
-            }
-            break;
-        }
-    }
-
-    return components;
 }
 
 // Analyze current task progress
@@ -823,200 +603,132 @@ VisionAction VisionGuidedExecutor::planWaitAction(const std::string &reason, int
     return action;
 }
 
+// TODO: Unit Test: Add tests for findBestTextInputElement with mock ScreenAnalysis data to verify rule-based selection.
 // Find best text input element using vision
 UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &state)
 {
-    std::cout << "🤖 Using AI to find best text input element from " << state.elements.size() << " available elements..." << std::endl;
+    // AI-based selection is temporarily removed to focus on generalizing rule-based logic.
+    // std::cout << "🤖 Using AI to find best text input element from " << state.elements.size() << " available elements..." << std::endl;
+    // try { ... AI call ... } catch { ... fallback ... }
 
-    // Use AI to intelligently select the best text input element
-    try
-    {
-        // Build list of available elements for AI analysis
-        std::vector<std::string> element_descriptions;
-        for (size_t i = 0; i < state.elements.size() && i < 20; ++i) // Limit to first 20 elements
-        {
-            const auto &element = state.elements[i];
-            std::string desc = "Element " + std::to_string(i + 1) + ": ";
-            desc += "'" + element.text + "' ";
-            desc += "(type: " + element.type + ", ";
-            desc += "size: " + std::to_string(element.width) + "x" + std::to_string(element.height) + ", ";
-            desc += "confidence: " + std::to_string(element.confidence) + ")";
-            element_descriptions.push_back(desc);
-        }
-
-        // Create screen description
-        std::string screen_desc = "Application: " + state.application_name + "\n";
-        screen_desc += "Window Title: " + state.window_title + "\n";
-        screen_desc += "Elements found: " + std::to_string(state.elements.size());
-
-        // Ask AI to select the best element for text input
-        json ai_response = callVisionAI(ai_api_key,
-                                        "Find the best text input area for typing text content",
-                                        screen_desc,
-                                        element_descriptions);
-
-        if (!ai_response.empty() && ai_response.contains("target_description"))
-        {
-            std::string target_desc = ai_response["target_description"];
-            double confidence = ai_response.value("confidence", 0.5);
-
-            std::cout << "🤖 AI selected target: '" << target_desc << "' (confidence: " << (confidence * 100) << "%)" << std::endl;
-
-            // Find the element that best matches AI's selection
-            UIElement bestElement;
-            double bestMatch = 0.0;
-
-            for (const auto &element : state.elements)
-            {
-                double match_score = 0.0;
-
-                // Simple text matching with the AI's target description
-                std::string element_text_lower = element.text;
-                std::string target_lower = target_desc;
-                std::transform(element_text_lower.begin(), element_text_lower.end(), element_text_lower.begin(), ::tolower);
-                std::transform(target_lower.begin(), target_lower.end(), target_lower.begin(), ::tolower);
-
-                if (element_text_lower.find("text") != std::string::npos && target_lower.find("text") != std::string::npos)
-                    match_score += 0.5;
-                if (element_text_lower.find("input") != std::string::npos && target_lower.find("input") != std::string::npos)
-                    match_score += 0.5;
-                if (element_text_lower.find("area") != std::string::npos && target_lower.find("area") != std::string::npos)
-                    match_score += 0.5;
-
-                // Prefer larger elements for main content areas
-                int area = element.width * element.height;
-                if (area > 50000)
-                    match_score += 0.3;
-
-                // Exclude system elements
-                if (element.text == "Taskbar" || element.text.find("Search") != std::string::npos)
-                    match_score -= 1.0;
-
-                if (match_score > bestMatch)
-                {
-                    bestMatch = match_score;
-                    bestElement = element;
-                    bestElement.confidence = confidence;
-                }
-            }
-
-            if (bestMatch > 0.0)
-            {
-                std::cout << "✅ AI-selected element: '" << bestElement.text << "' (type: " << bestElement.type << ")" << std::endl;
-                return bestElement;
-            }
-        }
-    }
-    catch (const std::exception &e)
-    {
-        std::cout << "⚠️ AI element selection failed, falling back to rule-based selection: " << e.what() << std::endl;
-    }
-
-    // Fallback to rule-based selection if AI fails
     UIElement bestElement;
-    double bestScore = 0.0;
+    double bestScore = -100.0; // Initialize with a very low score
 
-    std::cout << "🔍 Analyzing " << state.elements.size() << " UI elements for best text input..." << std::endl;
+    std::cout << "🔍 Analyzing " << state.elements.size() << " UI elements for best text input (rule-based)..." << std::endl;
     for (const auto &element : state.elements)
     {
         double score = 0.0;
 
         std::string type_lower = element.type;
         std::transform(type_lower.begin(), type_lower.end(), type_lower.begin(), ::tolower);
+        std::string text_lower = element.text;
+        std::transform(text_lower.begin(), text_lower.end(), text_lower.begin(), ::tolower);
+        std::string desc_lower = element.description;
+        std::transform(desc_lower.begin(), desc_lower.end(), desc_lower.begin(), ::tolower);
 
-        // EXCLUDE containers, taskbars, and non-input elements
+        // EXCLUDE non-interactive or unsuitable elements early
         if (type_lower.find("container") != std::string::npos ||
             type_lower.find("taskbar") != std::string::npos ||
             type_lower.find("toolbar") != std::string::npos ||
             type_lower.find("menubar") != std::string::npos ||
             type_lower.find("statusbar") != std::string::npos ||
-            element.text == "Taskbar" ||
-            element.text == "Start Button")
+            type_lower.find("image") != std::string::npos ||
+            type_lower.find("icon") != std::string::npos ||
+            text_lower == "taskbar" || // Exact match for "taskbar"
+            text_lower == "start button") // Exact match for "start button"
         {
-            std::cout << "   🚫 Excluding non-text element: '" << element.text << "' (type: " << element.type << ")" << std::endl;
-            continue; // Skip this element entirely
+            // std::cout << "   🚫 Excluding non-text/irrelevant element: '" << element.text << "' (type: " << element.type << ")" << std::endl;
+            continue;
         }
 
         // Score based on element type - prioritize actual text input elements
         if (type_lower.find("edit") != std::string::npos ||
             type_lower.find("textbox") != std::string::npos ||
-            type_lower.find("textarea") != std::string::npos)
+            type_lower.find("textarea") != std::string::npos ||
+            type_lower.find("text field") != std::string::npos || // More generic
+            type_lower.find("input field") != std::string::npos)
         {
-            score += 1.5; // Higher score for actual text input types
+            score += 1.5;
         }
-        else if (type_lower.find("text") != std::string::npos ||
-                 type_lower.find("input") != std::string::npos)
+        else if (type_lower.find("text") != std::string::npos || // General text, could be static
+                 type_lower.find("input") != std::string::npos) // General input
         {
-            score += 0.8;
+            score += 0.5; // Lower score for less specific types
         }
 
-        // Boost score for application-specific text areas (avoid system search boxes)
-        std::string app_lower = state.application_name;
-        std::transform(app_lower.begin(), app_lower.end(), app_lower.begin(), ::tolower);
+        // Penalize elements that are likely buttons or labels but might be misidentified
+        if (type_lower.find("button") != std::string::npos || type_lower.find("label") != std::string::npos) {
+            score -= 0.5;
+        }
 
-        // HEAVILY penalize Windows search boxes and system elements
-        bool is_search_box = (element.text.find("Search") != std::string::npos ||
-                              element.text.find("search") != std::string::npos ||
-                              element.description.find("Search") != std::string::npos ||
-                              element.description.find("search") != std::string::npos ||
-                              element.text.find("Type here to search") != std::string::npos ||
-                              element.description.find("Type here to search") != std::string::npos);
+        // Generic check for search-like terms - penalize these as they are usually not for general text input
+        bool is_search_box = (text_lower.find("search") != std::string::npos ||
+                              desc_lower.find("search") != std::string::npos ||
+                              text_lower.find("type here to search") != std::string::npos ||
+                              desc_lower.find("type here to search") != std::string::npos ||
+                              text_lower.find("find") != std::string::npos); // "find" can also indicate search
 
         if (is_search_box)
         {
-            score -= 2.0; // HEAVILY penalize search boxes
-            std::cout << "   🚫 Penalizing search box: '" << element.text << "' (type: " << element.type << ")" << std::endl;
-        }
-
-        // HEAVILY boost score if element is in the main application window
-        bool is_app_specific = false;
-        if (app_lower.find("notepad") != std::string::npos ||
-            app_lower.find("word") != std::string::npos ||
-            app_lower.find("excel") != std::string::npos ||
-            app_lower.find("code") != std::string::npos ||
-            app_lower.find("editor") != std::string::npos)
-        {
-            score += 1.0; // HEAVILY boost for main app elements
-            is_app_specific = true;
-            std::cout << "   ✅ Boosting app-specific element: '" << element.text << "' (type: " << element.type << ")" << std::endl;
+            score -= 2.0;
+            // std::cout << "   🚫 Penalizing potential search box: '" << element.text << "' (type: " << element.type << ")" << std::endl;
         }
 
         // Score based on size (larger text areas are often better for content creation)
+        // This should be a positive factor if it's a text input type
         int area = element.width * element.height;
-        if (area > 50000) // Very large text areas (like Notepad main area)
-            score += 0.6;
-        else if (area > 10000) // Medium text areas
-            score += 0.3;
-        else if (area > 1000) // Small text areas
-            score += 0.2;
-
-        // Score based on position (center elements often better, but not always for search)
-        int screen_width = GetSystemMetrics(SM_CXSCREEN);
-        int screen_height = GetSystemMetrics(SM_CYSCREEN);
-        double centerDistance = std::sqrt(std::pow(element.x - screen_width / 2, 2) +
-                                          std::pow(element.y - screen_height / 2, 2));
-        double maxDistance = std::sqrt(std::pow(screen_width / 2, 2) + std::pow(screen_height / 2, 2));
-
-        // Only boost center position if it's not a search box
-        if (!is_search_box)
-        {
-            score += 0.2 * (1.0 - centerDistance / maxDistance);
+        if (score > 0.0) { // Only apply size bonus if it's already considered an input type
+            if (area > 50000) score += 0.8; // Very large (e.g., document body)
+            else if (area > 10000) score += 0.4; // Medium
+            else if (area > 1000) score += 0.2;  // Small
         }
 
-        // Add base confidence
-        score += element.confidence * 0.5;
 
-        std::cout << "   📊 Element: '" << element.text << "' (type: " << element.type << ") - Score: " << score << std::endl;
+        // Score based on position (center elements often better, but not always for search)
+        // Generally, more central elements in an application window are primary interaction areas.
+        // This is a rough approximation. A better check would be relative to the active window's bounds.
+        int screen_width = GetSystemMetrics(SM_CXSCREEN);
+        int screen_height = GetSystemMetrics(SM_CYSCREEN);
+        double center_x_dist = std::abs(element.x + element.width / 2.0 - screen_width / 2.0);
+        double center_y_dist = std::abs(element.y + element.height / 2.0 - screen_height / 2.0);
+        // Normalize distance from center (0 is center, 1 is edge)
+        double norm_dist = std::sqrt(std::pow(center_x_dist / (screen_width / 2.0), 2) + std::pow(center_y_dist / (screen_height / 2.0), 2));
+
+        if (!is_search_box && score > 0.0) // Don't boost search boxes for being central
+        {
+             score += 0.3 * (1.0 - std::min(norm_dist, 1.0)); // Boosts elements closer to the center
+        }
+
+        // Boost if element text is empty (typical for input fields)
+        if (text_lower.empty() && score > 0.0) {
+            score += 0.5;
+        }
+
+        // Add base confidence from OCR/element detection, scaled
+        score += element.confidence * 0.3; // OCR confidence is a factor, but not dominant
+
+        // std::cout << "   📊 Element: '" << element.text << "' (type: " << element.type << ", area: " << area << ") - Score: " << score << std::endl;
 
         if (score > bestScore)
         {
             bestScore = score;
             bestElement = element;
-            bestElement.confidence = score;
+            // The 'confidence' of the bestElement should reflect the scoring here, not just original OCR confidence
+            bestElement.confidence = std::max(0.0, std::min(1.0, bestScore / 3.0)); // Normalize score to 0-1 approx.
         }
     }
 
-    std::cout << "🏆 Best element selected: '" << bestElement.text << "' with score: " << bestScore << std::endl;
+    if (bestScore > -100.0 && !bestElement.text.empty()) { // Check if any element was actually selected
+         std::cout << "🏆 Rule-based best text input element: '" << bestElement.text
+                  << "' (Type: " << bestElement.type
+                  << ", Original OCR Conf: " << state.elements.at(std::find(state.elements.begin(), state.elements.end(), bestElement) - state.elements.begin()).confidence // find original confidence
+                  << ") with calculated score: " << bestScore
+                  << ", final confidence: " << bestElement.confidence << std::endl;
+    } else {
+        std::cout << "⚠️ No suitable text input element found by rule-based selection." << std::endl;
+        bestElement = UIElement(); // Return empty element
+        bestElement.confidence = 0.0;
+    }
     return bestElement;
 }
 
@@ -1149,6 +861,7 @@ VisionAction VisionGuidedExecutor::parseGeminiResponse(const json &response, con
     return action;
 }
 
+// TODO: Unit Test: Add tests for executeAction, mocking VisionProcessor actions and system calls.
 bool VisionGuidedExecutor::executeAction(const VisionAction &action, VisionTaskStep &step)
 {
     try

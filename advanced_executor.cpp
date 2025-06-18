@@ -135,36 +135,59 @@ ExecutionResult AdvancedExecutor::executeWindowsCommand(const std::string& comma
     return result;
 }
 
+// TODO: Unit Test: Add tests for executePowerShellScript, focusing on safety checks and interaction with the (mocked) executor.cpp::executeScript.
 ExecutionResult AdvancedExecutor::executePowerShellScript(const std::vector<std::string>& commands) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
     ExecutionResult result;
-    result.success = true;
+    result.success = false; // Initialize to false
     result.output = "";
     result.error_message = "";
+
+    std::cout << "ℹ️ Attempting to execute PowerShell script with " << commands.size() << " command(s)." << std::endl;
+    for (size_t i = 0; i < commands.size(); ++i) {
+        std::cout << "  Cmd " << i + 1 << ": " << commands[i] << std::endl;
+    }
     
     try {
         // Safety checks for all commands
         for (const auto& cmd : commands) {
             if (!isCommandSafe(cmd) && current_mode == ExecutionMode::SAFE) {
-                result.success = false;
                 result.error_message = "Command blocked by safety rules: " + cmd;
+                std::cerr << "❌ PowerShell command blocked by safety rules: " << cmd << std::endl;
+                // result.success is already false
+                auto end_time_early = std::chrono::high_resolution_clock::now();
+                result.execution_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_early - start_time).count() / 1000.0;
                 return result;
             }
         }
         
-        // Use the original executor function
+        // Use the original executor function from executor.cpp
         json script_array = json::array();
         for (const auto& cmd : commands) {
             script_array.push_back(cmd);
         }
         
-        executeScript(script_array);
-        result.output = "PowerShell script executed successfully";
+        // Call the global executeScript.
+        // Note: The current ::executeScript from executor.cpp is void and does not return output or throw exceptions
+        // in a way that can be directly captured here to determine script success/failure or get stdout.
+        // It only prints to cerr on failure.
+        // Thus, result.success here primarily indicates that advanced_executor's checks passed and
+        // ::executeScript was called without throwing an exception *within this function's scope*.
+        // Actual script output is not captured in result.output.
+        ::executeScript(script_array); // Assuming executeScript is in global namespace or accessible
+
+        // If we reach here, assume advanced_executor's part was successful.
+        // We cannot determine the actual script's success from ::executeScript's void return.
+        result.success = true;
+        result.output = "PowerShell script submitted for execution. See console for potential errors from the script itself.";
+        std::cout << "✅ PowerShell script submitted for execution." << std::endl;
         
     } catch (const std::exception& e) {
-        result.success = false;
-        result.error_message = e.what();
+        // This catch block handles exceptions from advanced_executor's logic (e.g., json operations)
+        result.success = false; // Ensure success is false on exception
+        result.error_message = "Exception in executePowerShellScript: " + std::string(e.what());
+        std::cerr << "❌ Exception in executePowerShellScript: " << e.what() << std::endl;
     }
     
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -284,6 +307,7 @@ ExecutionResult AdvancedExecutor::callExternalAPI(const std::string& api_name, c
     return {false, "", "External API calls not yet implemented", 0.0, json::object()};
 }
 
+// TODO: Unit Test: Add tests for executeVisionTask, mocking VisionGuidedExecutor and verifying correct parameter passing and result handling.
 ExecutionResult AdvancedExecutor::executeVisionTask(const json& task_data) {
     auto start_time = std::chrono::high_resolution_clock::now();
     ExecutionResult result;
@@ -319,10 +343,16 @@ ExecutionResult AdvancedExecutor::executeVisionTask(const json& task_data) {
         VisionTaskExecution execution = vision_executor->executeVisionTask(task);
         
         result.success = execution.overall_success;
-        result.output = execution.final_result;
+        result.output = execution.final_result; // Contains success or failure summary
         
         if (!result.success) {
-            result.error_message = "Vision task execution failed";
+            // execution.final_result often contains a summary of failure.
+            // If final_result is empty or too generic on failure, this might need adjustment
+            // in VisionGuidedExecutor or here. For now, using final_result is more informative.
+            result.error_message = execution.final_result;
+            if (result.error_message.empty()) { // Fallback if final_result was empty
+                 result.error_message = "Vision task execution failed due to an unspecified error.";
+            }
         }
         
         // Add execution metadata
@@ -415,7 +445,20 @@ ExecutionResult AdvancedExecutor::executeUIAutomation(const json& automation_dat
         }
         
         result.success = all_success;
-        result.output = "UI automation completed with " + std::to_string(results.size()) + " actions";
+        result.output = "UI automation completed with " + std::to_string(results.size()) + " actions.";
+        if (!all_success) {
+            std::string error_summary = "One or more UI automation sub-actions failed. Check metadata for details. Failed actions: ";
+            bool first_error = true;
+            for (const auto& res_meta : results) {
+                if (!res_meta.value("success", true)) {
+                    if (!first_error) error_summary += ", ";
+                    error_summary += res_meta.value("action_type", "unknown_action");
+                    error_summary += " on target '" + res_meta.value("target", "unknown_target") + "'";
+                    first_error = false;
+                }
+            }
+            result.error_message = error_summary;
+        }
         result.metadata = {
             {"automation_type", "ui"},
             {"actions_executed", results.size()},
