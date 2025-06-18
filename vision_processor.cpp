@@ -393,28 +393,70 @@ bool VisionProcessor::typeAtElement(const UIElement &element, const std::string 
 
     Sleep(200); // Wait for focus
 
+    // TODO: Future Enhancement: Consider clipboard operations (copy-paste) for typing very large texts for performance and reliability.
     // Type the text
     for (char c : text)
     {
-        SHORT vk = VkKeyScanA(c);
-        if (vk != -1)
-        {
-            INPUT input[2] = {0};
+        if (c == '
+') {
+            // Simulate Enter key press
+            INPUT enter_input[2] = {0};
+            enter_input[0].type = INPUT_KEYBOARD;
+            enter_input[0].ki.wVk = VK_RETURN;
+            enter_input[1].type = INPUT_KEYBOARD;
+            enter_input[1].ki.wVk = VK_RETURN;
+            enter_input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, enter_input, sizeof(INPUT));
+        } else if (c == '') {
+            // Typically, LF (
+) is the one that matters. CR () might be part of CRLF (
+) sequences.
+            // If
+ is already handled as Enter, CR can often be skipped or also treated as Enter if needed by a specific application.
+            // For simplicity here, we'll skip CR if we are already handling LF.
+            continue;
+        } else {
+            SHORT vk = VkKeyScanA(c);
+            if (vk != -1) {
+                INPUT input[4] = {0}; // Max 4 inputs: ShiftDown, KeyDown, KeyUp, ShiftUp
+                int input_count = 0;
 
-            // Key down
-            input[0].type = INPUT_KEYBOARD;
-            input[0].ki.wVk = vk & 0xFF;
+                // Handle Shift key for uppercase or shifted symbols
+                if (HIWORD(vk) & 1) { // Check if Shift key is required
+                    input[input_count].type = INPUT_KEYBOARD;
+                    input[input_count].ki.wVk = VK_SHIFT;
+                    input[input_count].ki.dwFlags = 0; // Key down
+                    input_count++;
+                }
+                // TODO: Add handling for Ctrl and Alt if necessary, VkKeyScanA's HIWORD can indicate these too.
 
-            // Key up
-            input[1].type = INPUT_KEYBOARD;
-            input[1].ki.wVk = vk & 0xFF;
-            input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+                // Key down
+                input[input_count].type = INPUT_KEYBOARD;
+                input[input_count].ki.wVk = LOBYTE(vk); // Use only the low byte for the key code
+                input[input_count].ki.dwFlags = 0; // Key down
+                input_count++;
 
-            SendInput(2, input, sizeof(INPUT));
-            Sleep(30); // Small delay between keystrokes
+                // Key up
+                input[input_count].type = INPUT_KEYBOARD;
+                input[input_count].ki.wVk = LOBYTE(vk);
+                input[input_count].ki.dwFlags = KEYEVENTF_KEYUP;
+                input_count++;
+
+                if (HIWORD(vk) & 1) { // Release Shift key if it was pressed
+                    input[input_count].type = INPUT_KEYBOARD;
+                    input[input_count].ki.wVk = VK_SHIFT;
+                    input[input_count].ki.dwFlags = KEYEVENTF_KEYUP;
+                    input_count++;
+                }
+                SendInput(input_count, input, sizeof(INPUT));
+            } else {
+                // Character cannot be typed with VkKeyScanA (e.g., some complex Unicode not in current layout)
+                std::cerr << "⚠️ Warning in typeAtElement: Character '" << c << "' (ASCII: " << static_cast<int>(c)
+                          << ") cannot be directly typed using VkKeyScanA. It might be skipped or require alternative input methods." << std::endl;
+            }
         }
+        Sleep(30); // Keep the delay, but it's now per processed character/action.
     }
-
     return true;
 }
 

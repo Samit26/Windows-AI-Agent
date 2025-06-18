@@ -40,16 +40,18 @@ class TaskPlanner {
 private:
     std::vector<TaskPlan> active_plans;
     json task_templates;
+    std::string api_key; // Added for content generation calls
     
     std::string generateTaskId();
     std::string generatePlanId();
-    TaskPlan createComplexPlan(const std::string& objective, const json& context);
-    
+    TaskPlan createComplexPlan(const std::string& objective, const json& context); // This seems unused, consider removing later
+    void processSinglePlanStep(const json& step_json, TaskPlan& current_plan, const std::string& original_request); // Helper declaration
+
 public:
-    TaskPlanner();
+    TaskPlanner(std::string key); // Modified constructor
     
     // Planning methods
-    TaskPlan planTask(const std::string& user_request, const json& context);
+    TaskPlan planTask(const std::string& user_request, const json& llm_response_json); // Parameter name updated for clarity
     std::vector<Task> breakDownComplexTask(const std::string& task_description);
     
     // Execution methods

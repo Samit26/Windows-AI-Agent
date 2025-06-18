@@ -72,41 +72,65 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
         return json::object();
     } // Create the request URL for OpenRouter DeepSeek API
     std::string url = "https://openrouter.ai/api/v1/chat/completions";
-    // TODO: Reinforce in the prompt that if the AI decides on a structured command (powershell_script or vision_task),
+    // TODO: Reinforce in the prompt that if the AI decides on a structured command,
     // the JSON output should be the ONLY content in its response and must be valid JSON.
-    // For example, add: "If returning JSON, ensure it is the sole content of your response."
-    std::string enhanced_prompt = "You are an advanced Windows automation assistant powered by DeepSeek R1. Analyze the user's task and determine if it requires:\n"
-                                  "1. Simple PowerShell commands (for file operations, calculations, opening apps)\n"
-                                  "2. Vision-guided UI automation (for complex interactions requiring screen analysis)\n\n"
-                                  
-                                  "For SIMPLE tasks (file operations, calculations, launching apps), respond with:\n"
-                                  "{\n"
-                                  "  \"type\": \"powershell_script\",\n"
-                                  "  \"script\": [\"command1\", \"command2\"],\n"
-                                  "  \"explanation\": \"What this accomplishes\",\n"
-                                  "  \"confidence\": 0.95\n"
-                                  "}\n\n"
-                                  
-                                  "For COMPLEX tasks requiring UI interaction (typing in specific apps, clicking buttons, navigating interfaces), respond with:\n"
-                                  "{\n"
-                                  "  \"type\": \"vision_task\",\n"
-                                  "  \"initial_action\": \"Start-Process 'appname'\",\n"
-                                  "  \"target_app\": \"application_name\",\n"
-                                  "  \"objective\": \"Clear description of what to accomplish\",\n"
-                                  "  \"explanation\": \"Why this needs vision guidance\",\n"
-                                  "  \"confidence\": 0.85\n"
-                                  "}\n\n"
-                                  
+    // For example, add: "If returning JSON, ensure it is the sole content of your response and strictly adheres to the defined schema."
+    std::string enhanced_prompt = "You are an advanced Windows automation assistant. Analyze the user's task and respond with a JSON object describing the plan. Possible types of responses:\n\n"
+                                  "1. For SIMPLE tasks (file operations, calculations, launching apps):\n"
+                                  "   {\n"
+                                  "     \"type\": \"powershell_script\",\n"
+                                  "     \"script\": [\"command1\", \"command2\"],\n"
+                                  "     \"explanation\": \"What this accomplishes\",\n"
+                                  "     \"confidence\": 0.95\n"
+                                  "   }\n\n"
+                                  "2. For COMPLEX tasks requiring UI interaction (typing, clicking, navigating interfaces):\n"
+                                  "   {\n"
+                                  "     \"type\": \"vision_task\",\n"
+                                  "     \"initial_action\": \"Optional: PowerShell command to start an app (e.g., 'Start-Process \\\"notepad.exe\\\"')\",\n"
+                                  "     \"target_app\": \"Optional: Friendly name of the target application (e.g., 'Notepad')\",\n"
+                                  "     \"objective\": \"Clear description of what to accomplish using vision (e.g., 'Click the File menu, then click Save')\",\n"
+                                  "     \"explanation\": \"Why this needs vision guidance\",\n"
+                                  "     \"confidence\": 0.85\n"
+                                  "   }\n\n"
+                                  "3. For tasks that require GENERATING TEXT/CONTENT and then USING IT (e.g., writing an email, then typing or saving it):\n"
+                                  "   {\n"
+                                  "     \"type\": \"generate_content_and_execute\",\n"
+                                  "     \"content_generation_prompt\": \"Prompt for an LLM to generate the desired content (e.g., 'Write a short story about a robot learning to paint')\",\n"
+                                  "     \"subsequent_action\": { // Object defining what to do with the generated content\n"
+                                  "       \"type\": \"vision_task\", // Can also be \"powershell_script\", or a new \"save_to_file_action\"\n"
+                                  "       \"objective\": \"Objective for the action using the generated content (e.g., 'Type the generated story into the active window')\",\n"
+                                  "       \"target_app\": \"Optional: target application context (e.g., 'Microsoft Word')\",\n"
+                                  "       // ... other parameters relevant to subsequent_action.type ...\n"
+                                  "       // Example for a potential \"save_to_file_action\" (hypothetical, not yet implemented by agent):\n"
+                                  "       // \"filename_prompt\": \"Suggest a filename for the content (e.g., 'robot_story.txt')\",\n"
+                                  "       // \"overwrite\": false\n"
+                                  "     },\n"
+                                  "     \"explanation\": \"Brief explanation of this combined step (generate and use).\",\n"
+                                  "     \"confidence\": 0.80\n"
+                                  "   }\n\n"
+                                  "4. For tasks involving MULTIPLE DISTINCT ACTIONS (e.g., open an app, then generate content and type it, then save a file):\n"
+                                  "   {\n"
+                                  "     \"type\": \"multi_step_plan\",\n"
+                                  "     \"steps\": [\n"
+                                  "       { /* Step 1: e.g., {\"type\": \"powershell_script\", \"script\": [\"Start-Process notepad.exe\"], ...} */ },\n"
+                                  "       { /* Step 2: e.g., {\"type\": \"generate_content_and_execute\", ...} to write and type a story */ },\n"
+                                  "       { /* Step 3: e.g., {\"type\": \"vision_task\", \"objective\": \"Click File, then Save As...\"} */ }\n"
+                                  "       // Each step in the 'steps' array should be one of the valid single-step JSON structures (powershell_script, vision_task, generate_content_and_execute).\n"
+                                  "     ],\n"
+                                  "     \"explanation\": \"Overall explanation of the multi-step plan.\",\n"
+                                  "     \"confidence\": 0.75\n"
+                                  "   }\n\n"
                                   "CRITICAL GUIDELINES:\n"
-                                  "- Use only standard Windows applications and PowerShell commands\n"
-                                  "- For typing tasks in specific applications: use vision_task type\n"
-                                  "- For file operations, calculations, opening apps: use powershell_script type\n"
-                                  "- Never hardcode paths or assume non-standard software is installed\n"
-                                  "- Be precise about the objective for vision tasks\n\n"
-                                  
+                                  "- ALWAYS respond with a single, valid JSON object. Your entire response must be this JSON object.\n"
+                                  "- Do NOT include any text or explanation outside of the JSON structure.\n"
+                                  "- For `powershell_script`, use only standard Windows applications and PowerShell commands.\n"
+                                  "- For `vision_task`, be precise about the `objective`.\n"
+                                  "- For `generate_content_and_execute`, the `content_generation_prompt` should be specific for an LLM, and `subsequent_action` must be a valid action type.\n"
+                                  "- For `multi_step_plan`, each item in `steps` must be a complete and valid JSON action definition.\n"
+                                  "- Never hardcode user-specific paths. Use general methods.\n\n"
                                   "User task: " + user_prompt;
     json request_body = {
-        {"model", "deepseek/deepseek-r1-0528-qwen3-8b:free"},
+        {"model", "deepseek/deepseek-r1-0528-qwen3-8b:free"}, // Consider updating model if needed for complex planning
         {"messages", {{{"role", "user"}, {"content", enhanced_prompt}}}}};
 
     std::string json_string = request_body.dump();
@@ -151,33 +175,36 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
 
                 if (!parsed_json.empty() && parsed_json.contains("type"))
                 {
-                    std::string type = parsed_json["type"];
-                    if (type == "powershell_script" || type == "vision_task")
+                    std::string response_main_type = parsed_json["type"].get<std::string>();
+                    if (response_main_type == "powershell_script" ||
+                        response_main_type == "vision_task" ||
+                        response_main_type == "generate_content_and_execute" ||
+                        response_main_type == "multi_step_plan")
                     {
-                        return parsed_json;
+                        return parsed_json; // These are valid structured responses
                     }
+                    // If type is something else, but it's still valid JSON, it might be an error or unexpected.
+                    std::cerr << "callAIModel: Received valid JSON but with an unrecognized primary type: "
+                              << response_main_type << ". Response: " << parsed_json.dump(2) << std::endl;
+                } else if (parsed_json.empty()) {
+                     std::cerr << "callAIModel: extractJsonFromString returned empty JSON. Original text: " << deepseek_text << std::endl;
+                } else { // Not empty, but no "type" field
+                     std::cerr << "callAIModel: Parsed JSON is missing 'type' field. Original text: " << deepseek_text
+                               << ". Parsed JSON: " << parsed_json.dump(2) << std::endl;
                 }
-                // If JSON is empty, parsing failed, or type is not valid, treat as text response
-                // Also log the original text if parsing failed or type was invalid.
-                if (parsed_json.empty()){
-                    std::cerr << "Failed to parse JSON from callAIModel, returning as text. Original text: " << deepseek_text << std::endl;
-                } else if (!parsed_json.contains("type")) {
-                    std::cerr << "Parsed JSON in callAIModel lacks 'type' field, returning as text. Original text: " << deepseek_text << std::endl;
-                } else {
-                     std::cerr << "Parsed JSON in callAIModel has invalid 'type', returning as text. Original text: " << deepseek_text << std::endl;
-                }
+                // Fallback: if not a recognized structured type, if "type" is missing, or if JSON parsing failed (parsed_json is empty)
                 return json{{"type", "text"}, {"content", deepseek_text}};
             }
         }
-        std::cerr << "Unexpected response format from DeepSeek API" << std::endl;
-        std::cerr << "Full response: " << response.dump(2) << std::endl;
-        return json::object();
+        std::cerr << "Unexpected response format from AI API (missing choices or content field)" << std::endl;
+        std::cerr << "Full API response: " << response.dump(2) << std::endl;
+        return json::object(); // Return empty JSON if the expected structure (choices[0].message.content) is not there
     }
-    catch (const json::parse_error &e) // This catch block is for the initial parsing of the whole API response
+    catch (const json::parse_error &e) // This catch block is for the initial parsing of the *entire* API response
     {
-        std::cerr << "Failed to parse the main API response: " << e.what() << std::endl;
-        std::cerr << "Raw API response: " << response_data << std::endl;
-        return json::object();
+        std::cerr << "Failed to parse the main AI API response JSON: " << e.what() << std::endl;
+        std::cerr << "Raw API response data: " << response_data << std::endl;
+        return json::object(); // Return empty JSON on parsing failure
     }
 }
 
@@ -424,6 +451,80 @@ json callIntentAI(const std::string &api_key, const std::string &user_request)
     }
 
     return json::object(); // Default return if other paths fail
+}
+
+// Function to get plain text responses from the LLM, suitable for content generation
+std::string callLLMForTextGeneration(const std::string &api_key, const std::string &text_generation_prompt)
+{
+    CURL *curl;
+    CURLcode res;
+    std::string response_data;
+
+    curl = curl_easy_init();
+    if (!curl)
+    {
+        std::cerr << "Failed to initialize curl for text generation" << std::endl;
+        return "Error: Curl initialization failed.";
+    }
+
+    std::string url = "https://openrouter.ai/api/v1/chat/completions";
+
+    // System prompt tailored for direct text generation
+    std::string system_prompt_text_gen = "You are a helpful AI assistant. Please directly respond to the following request for text generation. Provide only the generated text as your response, without any additional explanations, conversational filler, or JSON formatting.";
+
+    json request_body = {
+        {"model", "deepseek/deepseek-r1-0528-qwen3-8b:free"}, // Or any other suitable model for text generation
+        {"messages", json::array({
+            {{"role", "system"}, {"content", system_prompt_text_gen}},
+            {{"role", "user"}, {"content", text_generation_prompt}}
+        })},
+        {"temperature", 0.7} // Adjust temperature for creativity as needed
+    };
+
+    std::string json_string = request_body.dump();
+
+    struct curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    std::string auth_header = "Authorization: Bearer " + api_key;
+    headers = curl_slist_append(headers, auth_header.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    res = curl_easy_perform(curl);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK)
+    {
+        std::cerr << "curl_easy_perform() failed for text generation: " << curl_easy_strerror(res) << std::endl;
+        return "Error: LLM call failed (" + std::string(curl_easy_strerror(res)) + ")";
+    }
+
+    try
+    {
+        json response_json = json::parse(response_data);
+        if (response_json.contains("choices") && !response_json["choices"].empty())
+        {
+            const auto &choice = response_json["choices"][0];
+            if (choice.contains("message") && choice["message"].contains("content"))
+            {
+                return choice["message"]["content"].get<std::string>();
+            }
+        }
+        std::cerr << "Error: Unexpected JSON structure in LLM response for text generation. Full response: " << response_json.dump(2) << std::endl;
+        return "Error: Could not extract content from LLM response.";
+    }
+    catch (const json::parse_error &e)
+    {
+        std::cerr << "Error: Failed to parse LLM response JSON for text generation: " << e.what() << std::endl;
+        std::cerr << "Raw response data: " << response_data << std::endl;
+        return "Error: Failed to parse LLM response.";
+    }
 }
 
 json callVisionAI(const std::string &api_key, const std::string &task, const std::string &screen_description, const std::vector<std::string> &available_elements)

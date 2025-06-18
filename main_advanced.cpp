@@ -19,7 +19,7 @@ class AdvancedAIAgent
 private:
     std::string api_key;
     ContextManager context_manager;
-    TaskPlanner task_planner;
+    TaskPlanner task_planner; // Will be initialized in constructor
     AdvancedExecutor advanced_executor;
     MultiModalHandler multimodal_handler;
     HttpServer http_server;
@@ -28,11 +28,17 @@ private:
     bool server_mode;
 
 public:
-    AdvancedAIAgent() : interactive_mode(true), learning_enabled(true), server_mode(false), http_server(8080)
+    AdvancedAIAgent() :
+        interactive_mode(true),
+        learning_enabled(true),
+        server_mode(false),
+        http_server(8080),
+        task_planner("") // Initialize with empty key, will be set in loadConfiguration
     {
-        loadConfiguration();
+        loadConfiguration(); // api_key is loaded here, then task_planner is re-initialized
         displayWelcomeMessage();
     }
+
     void loadConfiguration()
     {
         std::ifstream config_file("config_advanced.json");
@@ -55,6 +61,10 @@ public:
             exit(1);
         }
         api_key = config["api_key"].get<std::string>();
+
+        // Re-initialize task_planner with the loaded API key
+        task_planner = TaskPlanner(api_key);
+
         // Initialize vision capabilities with AI API key
         advanced_executor.setAIApiKey(api_key);
 
