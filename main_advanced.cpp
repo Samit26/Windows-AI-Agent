@@ -6,7 +6,7 @@
 #include <chrono>
 #include "include/json.hpp"
 #include "ai_model.h"
-#include "context_manager.h"
+// #include "context_manager.h" // Removed
 #include "task_planner.h"
 #include "advanced_executor.h"
 #include "multimodal_handler.h"
@@ -18,7 +18,7 @@ class AdvancedAIAgent
 {
 private:
     std::string api_key;
-    ContextManager context_manager;
+    // ContextManager context_manager; // Removed
     TaskPlanner task_planner; // Will be initialized in constructor
     AdvancedExecutor advanced_executor;
     MultiModalHandler multimodal_handler;
@@ -107,7 +107,7 @@ public:
         if (server_mode)
         {
             VisionProcessor* vp = multimodal_handler.getVisionProcessor();
-            http_server.setComponents(&advanced_executor, &context_manager,
+            http_server.setComponents(&advanced_executor, nullptr /* &context_manager removed */,
                                       &task_planner, &multimodal_handler,
                                       vp, api_key);
         }
@@ -118,7 +118,7 @@ public:
         std::cout << "🤖 ADVANCED WINDOWS AI AGENT v2.0 🤖" << std::endl;
         std::cout << "========================================" << std::endl;
         std::cout << "Features:" << std::endl;
-        std::cout << "✓ Context Memory & Learning" << std::endl;
+        // std::cout << "✓ Context Memory & Learning" << std::endl; // Removed
         std::cout << "✓ Advanced Task Planning" << std::endl;
         std::cout << "✓ Multi-Modal Input Support" << std::endl;
         std::cout << "✓ Safe Execution Environment" << std::endl;
@@ -128,7 +128,7 @@ public:
         std::cout << "  Type your request normally" << std::endl;
         std::cout << "  ':voice' - Enable voice input" << std::endl;
         std::cout << "  ':screenshot' - Analyze current screen" << std::endl;
-        std::cout << "  ':history' - Show conversation history" << std::endl;
+        // std::cout << "  ':history' - Show conversation history" << std::endl; // Removed
         std::cout << "  ':mode safe/interactive/autonomous' - Change execution mode" << std::endl;
         std::cout << "  ':quit', 'quit', 'exit', or 'q' - Exit the application" << std::endl;
         std::cout << "========================================" << std::endl;
@@ -152,8 +152,8 @@ public:
 
         try
         {
-            // Process input through context manager
-            std::string contextual_prompt = context_manager.getContextualPrompt(input);
+            // Process input through context manager (replaced with direct input)
+            std::string contextual_prompt = input; // Was context_manager.getContextualPrompt(input);
             // Call AI Model API with enhanced context
             json response = callAIModel(api_key, contextual_prompt);
 
@@ -196,10 +196,10 @@ public:
                 if (proceed)
                 {
                     ExecutionResult result = advanced_executor.executeWithPlan(plan);
-                    context_manager.addToHistory(input,
-                                                 response.value("explanation", "Executed script"),
-                                                 response.dump(),
-                                                 result.success);
+                    // context_manager.addToHistory(input, // Removed
+                    //                              response.value("explanation", "Executed script"),
+                    //                              response.dump(),
+                    //                              result.success);
                     displayExecutionResult(result);
 
                     if (learning_enabled)
@@ -269,13 +269,13 @@ public:
                 else {
                     std::cout << "💬 AI Response: " << content << std::endl;
                 }
-                context_manager.addToHistory(input, response.dump(), response_type, true); // Store actual type
+                // context_manager.addToHistory(input, response.dump(), response_type, true); // Removed
             }
         }
         catch (const std::exception &e)
         {
             std::cerr << "❌ Error: " << e.what() << std::endl;
-            context_manager.addToHistory(input, "", "error", false);
+            // context_manager.addToHistory(input, "", "error", false); // Removed
         }
     }
 
@@ -300,11 +300,11 @@ public:
             std::string analysis = multimodal_handler.analyzeScreenshot();
             std::cout << "👁️ Screen Analysis: " << analysis << std::endl;
         }
-        else if (command == ":history")
-        {
-            std::cout << "📜 Recent conversation history:" << std::endl;
-            std::cout << context_manager.getRecentContext(5) << std::endl;
-        }
+        // else if (command == ":history") // Removed
+        // {
+        //     std::cout << "📜 Recent conversation history:" << std::endl;
+        //     std::cout << context_manager.getRecentContext(5) << std::endl;
+        // }
         else if (command.length() > 6 && command.substr(0, 6) == ":mode ")
         {
             std::string mode = command.substr(6);
@@ -326,8 +326,8 @@ public:
         }
         else if (command == ":quit")
         {
-            std::cout << "👋 Goodbye! Session saved." << std::endl;
-            context_manager.saveSession();
+            std::cout << "👋 Goodbye!" << std::endl; // "Session saved" removed
+            // context_manager.saveSession(); // Removed
             exit(0);
         }
         else
@@ -438,7 +438,7 @@ public:
             displayVisionTaskResult(result, input);
 
             // Add to context
-            context_manager.addToHistory(input, result.output, "vision_task", result.success);
+                    // context_manager.addToHistory(input, result.output, "vision_task", result.success); // Removed
         }
         catch (const std::exception &e)
         {
@@ -555,8 +555,8 @@ public:
             // Check for common exit commands
             if (user_input == "exit" || user_input == "quit" || user_input == "q")
             {
-                std::cout << "👋 Goodbye! Session saved." << std::endl;
-                context_manager.saveSession();
+                std::cout << "👋 Goodbye!" << std::endl; // "Session saved" removed
+                // context_manager.saveSession(); // Removed
                 break;
             }
 
