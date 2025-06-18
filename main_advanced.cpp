@@ -96,8 +96,10 @@ public:
         // Configure HTTP server if needed
         if (server_mode)
         {
+            VisionProcessor* vp = multimodal_handler.getVisionProcessor();
             http_server.setComponents(&advanced_executor, &context_manager,
-                                      &task_planner, &multimodal_handler, api_key);
+                                      &task_planner, &multimodal_handler,
+                                      vp, api_key);
         }
     }
     void displayWelcomeMessage()
