@@ -4,7 +4,6 @@
 #include <memory>
 #include <curl/curl.h>
 
-#ifndef NO_CURL
 // Callback function to write response data
 size_t WriteCallback(void *contents, size_t size, size_t nmemb, std::string *output)
 {
@@ -12,19 +11,55 @@ size_t WriteCallback(void *contents, size_t size, size_t nmemb, std::string *out
     output->append((char *)contents, total_size);
     return total_size;
 }
-#endif
 
+// TODO: Unit Test: Add unit tests for extractJsonFromString with various valid and invalid JSON strings (direct parse, markdown, malformed, empty).
+// Helper function to extract JSON from a string
+json extractJsonFromString(const std::string &text_response)
+{
+    try
+    {
+        // Attempt direct parsing
+        return json::parse(text_response);
+    }
+    catch (const json::parse_error &e)
+    {
+        // Log the direct parsing error
+        std::cerr << "Direct JSON parsing failed: " << e.what() << std::endl;
+        std::cerr << "Raw response for direct parsing failure: " << text_response << std::endl;
+
+        // If direct parsing fails, try to extract JSON from markdown code blocks
+        size_t json_start = text_response.find("```json");
+        if (json_start != std::string::npos)
+        {
+            json_start += 7; // Skip "```json"
+            size_t json_end = text_response.find("```", json_start);
+            if (json_end != std::string::npos)
+            {
+                std::string json_content = text_response.substr(json_start, json_end - json_start);
+                // Trim whitespace
+                json_content.erase(0, json_content.find_first_not_of(" \t\n\r"));
+                json_content.erase(json_content.find_last_not_of(" \t\n\r") + 1);
+                try
+                {
+                    return json::parse(json_content);
+                }
+                catch (const json::parse_error &e_markdown)
+                {
+                    // Log the markdown parsing error
+                    std::cerr << "Markdown JSON parsing failed: " << e_markdown.what() << std::endl;
+                    std::cerr << "Raw content from markdown for parsing failure: " << json_content << std::endl;
+                }
+            }
+        }
+    }
+    // If all attempts fail, log and return an empty json object
+    std::cerr << "Failed to extract JSON from response: " << text_response << std::endl;
+    return json::object();
+}
+
+// TODO: Unit Test: Add integration tests for these functions, mocking curl calls and verifying prompt construction and response parsing.
 json callAIModel(const std::string &api_key, const std::string &user_prompt)
 {
-#ifdef NO_CURL
-    std::cout << "⚠️  HTTP functionality disabled - libcurl not available" << std::endl;
-    std::cout << "📝 User prompt: " << user_prompt << std::endl;
-    // Return a mock response for testing without libcurl
-    json mock_response = {
-        {"choices", {{{"message", {{"content", "{\n  \"type\": \"powershell_script\",\n  \"script\": [\"echo 'Mock response - libcurl not available'\"],\n  \"explanation\": \"This is a mock response because libcurl is not available\",\n  \"confidence\": 0.1\n}"}}}}}}};
-
-    return mock_response;
-#else
     CURL *curl;
     CURLcode res;
     std::string response_data;
@@ -36,7 +71,10 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
         std::cerr << "Failed to initialize curl" << std::endl;
         return json::object();
     } // Create the request URL for OpenRouter DeepSeek API
-    std::string url = "https://openrouter.ai/api/v1/chat/completions";    // Create enhanced prompt for DeepSeek R1 that handles step-by-step task breakdown
+    std::string url = "https://openrouter.ai/api/v1/chat/completions";
+    // TODO: Reinforce in the prompt that if the AI decides on a structured command (powershell_script or vision_task),
+    // the JSON output should be the ONLY content in its response and must be valid JSON.
+    // For example, add: "If returning JSON, ensure it is the sole content of your response."
     std::string enhanced_prompt = "You are an advanced Windows automation assistant powered by DeepSeek R1. Analyze the user's task and determine if it requires:\n"
                                   "1. Simple PowerShell commands (for file operations, calculations, opening apps)\n"
                                   "2. Vision-guided UI automation (for complex interactions requiring screen analysis)\n\n"
@@ -108,78 +146,45 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
             auto &choice = response["choices"][0];
             if (choice.contains("message") && choice["message"].contains("content"))
             {
-                std::string deepseek_text = choice["message"]["content"];                // Handle both powershell_script and vision_task types
-                try
+                std::string deepseek_text = choice["message"]["content"];
+                json parsed_json = extractJsonFromString(deepseek_text);
+
+                if (!parsed_json.empty() && parsed_json.contains("type"))
                 {
-                    json parsed = json::parse(deepseek_text);
-                    
-                    // Validate response format
-                    if (parsed.contains("type"))
+                    std::string type = parsed_json["type"];
+                    if (type == "powershell_script" || type == "vision_task")
                     {
-                        std::string type = parsed["type"];
-                        if (type == "powershell_script" || type == "vision_task")
-                        {
-                            return parsed;
-                        }
+                        return parsed_json;
                     }
-                    
-                    // If no valid type, treat as text response
-                    return json{{"type", "text"}, {"content", deepseek_text}};
                 }
-                catch (const json::parse_error &)
-                {
-                    // If direct parsing fails, try to extract JSON from markdown code blocks
-                    size_t json_start = deepseek_text.find("```json");
-                    if (json_start != std::string::npos)
-                    {
-                        json_start += 7; // Skip "```json"
-                        size_t json_end = deepseek_text.find("```", json_start);
-                        if (json_end != std::string::npos)
-                        {
-                            std::string json_content = deepseek_text.substr(json_start, json_end - json_start);
-                            // Trim whitespace
-                            json_content.erase(0, json_content.find_first_not_of(" \t\n\r"));
-                            json_content.erase(json_content.find_last_not_of(" \t\n\r") + 1);
-                            try
-                            {
-                                return json::parse(json_content);
-                            }
-                            catch (const json::parse_error &)
-                            {
-                                // If still can't parse, fall through to text response
-                            }
-                        }
-                    }
-                    // If it's not JSON, wrap it as a simple text response
-                    return json{{"type", "text"}, {"content", deepseek_text}};
+                // If JSON is empty, parsing failed, or type is not valid, treat as text response
+                // Also log the original text if parsing failed or type was invalid.
+                if (parsed_json.empty()){
+                    std::cerr << "Failed to parse JSON from callAIModel, returning as text. Original text: " << deepseek_text << std::endl;
+                } else if (!parsed_json.contains("type")) {
+                    std::cerr << "Parsed JSON in callAIModel lacks 'type' field, returning as text. Original text: " << deepseek_text << std::endl;
+                } else {
+                     std::cerr << "Parsed JSON in callAIModel has invalid 'type', returning as text. Original text: " << deepseek_text << std::endl;
                 }
+                return json{{"type", "text"}, {"content", deepseek_text}};
             }
         }
         std::cerr << "Unexpected response format from DeepSeek API" << std::endl;
         std::cerr << "Full response: " << response.dump(2) << std::endl;
         return json::object();
     }
-    catch (const json::parse_error &e)
+    catch (const json::parse_error &e) // This catch block is for the initial parsing of the whole API response
     {
-        std::cerr << "Failed to parse DeepSeek response: " << e.what() << std::endl;
-        std::cerr << "Raw response: " << response_data << std::endl;
+        std::cerr << "Failed to parse the main API response: " << e.what() << std::endl;
+        std::cerr << "Raw API response: " << response_data << std::endl;
         return json::object();
     }
-#endif // NO_CURL
 }
 
+// TODO: Unit Test: Add integration tests for these functions, mocking curl calls and verifying prompt construction and response parsing.
 // Vision-specific AI model call that returns vision action JSON
 json callVisionAIModel(const std::string &api_key, const std::string &vision_prompt)
 {
-#ifdef NO_CURL
-    std::cout << "⚠️  HTTP functionality disabled - libcurl not available" << std::endl;
-    std::cout << "📝 Vision prompt: " << vision_prompt << std::endl;
-    // Return a mock vision response for testing without libcurl
-    json mock_response = {
-        {"choices", {{{"message", {{"content", "{\n  \"action_type\": \"wait\",\n  \"target_description\": \"Mock action\",\n  \"value\": \"1000\",\n  \"explanation\": \"Mock response - libcurl not available\",\n  \"confidence\": 0.1\n}"}}}}}}};
-
-    return mock_response;
-#else
     CURL *curl;
     CURLcode res;
     std::string response_data;
@@ -193,7 +198,10 @@ json callVisionAIModel(const std::string &api_key, const std::string &vision_pro
     }
 
     // Create the request URL for OpenRouter DeepSeek API
-    std::string url = "https://openrouter.ai/api/v1/chat/completions"; // Create concise vision-specific system prompt
+    std::string url = "https://openrouter.ai/api/v1/chat/completions";
+    // TODO: The prompt already asks for "ONLY a JSON object" and "Always end with valid JSON".
+    // Review if this can be made stricter or if alternative phrasings could improve LLM adherence.
+    // For example, "Your entire response must be a single, valid JSON object, with no surrounding text or explanations."
     std::string vision_system_prompt = "You are a Windows UI automation assistant. Analyze screen descriptions and return the next action as JSON.\n\n"
                                        "CRITICAL: Always end with valid JSON. Use this exact format:\n"
                                        "{\n"
@@ -268,108 +276,53 @@ json callVisionAIModel(const std::string &api_key, const std::string &vision_pro
                 // If we have text, try to extract JSON from it
                 if (!full_text.empty())
                 {
-                    // Method 1: Look for final JSON object
-                    size_t last_brace = full_text.rfind("}");
-                    if (last_brace != std::string::npos)
+                    json extracted_json = extractJsonFromString(full_text);
+                    // Check if the extracted JSON is valid and contains the expected structure
+                    if (!extracted_json.empty() && extracted_json.contains("action_type"))
                     {
-                        // Work backwards to find matching opening brace
-                        int brace_count = 1;
-                        size_t json_start = last_brace;
-
-                        for (int i = last_brace - 1; i >= 0 && brace_count > 0; i--)
-                        {
-                            if (full_text[i] == '}')
-                                brace_count++;
-                            else if (full_text[i] == '{')
-                            {
-                                brace_count--;
-                                if (brace_count == 0)
-                                    json_start = i;
-                            }
-                        }
-
-                        if (brace_count == 0)
-                        {
-                            std::string json_str = full_text.substr(json_start, last_brace - json_start + 1);
-                            try
-                            {
-                                json extracted = json::parse(json_str);
-                                // Wrap it in the expected response format
-                                json formatted_response = {
-                                    {"choices", {{{"message", {{"content", json_str}}}}}}};
-                                return formatted_response;
-                            }
-                            catch (const json::parse_error &)
-                            {
-                                // If parsing fails, continue to fallback
-                            }
-                        }
+                        // The AI is expected to return ONLY the JSON object for the action.
+                        // So, we return the extracted_json directly.
+                        return extracted_json;
                     }
-
-                    // Method 2: Look for JSON in markdown blocks
-                    size_t json_block_start = full_text.find("```json");
-                    if (json_block_start != std::string::npos)
-                    {
-                        json_block_start += 7;
-                        size_t json_block_end = full_text.find("```", json_block_start);
-                        if (json_block_end != std::string::npos)
-                        {
-                            std::string json_str = full_text.substr(json_block_start, json_block_end - json_block_start);
-                            // Trim whitespace
-                            json_str.erase(0, json_str.find_first_not_of(" \t\n\r"));
-                            json_str.erase(json_str.find_last_not_of(" \t\n\r") + 1);
-
-                            try
-                            {
-                                json extracted = json::parse(json_str);
-                                // Wrap it in the expected response format
-                                json formatted_response = {
-                                    {"choices", {{{"message", {{"content", json_str}}}}}}};
-                                return formatted_response;
-                            }
-                            catch (const json::parse_error &)
-                            {
-                                // Continue to fallback
-                            }
-                        }
-                    }
+                    // Log if full_text was present but JSON extraction failed or was invalid
+                    std::cerr << "JSON extraction from full_text in callVisionAIModel failed or result was invalid." << std::endl;
+                    // extractJsonFromString already logs the full_text if parsing fails.
                 }
             }
-        } // If all parsing methods fail, generate a fallback JSON
-        std::cout << "⚠️  JSON extraction failed, generating fallback action..." << std::endl;
+        }
 
-        // Create a simple wait action as fallback
-        json fallback_response = {
-            {"choices", {{{"message", {{"content", "{\n  \"action_type\": \"wait\",\n  \"target_description\": \"interface\",\n  \"value\": \"2000\",\n  \"explanation\": \"Fallback action - JSON parsing failed\",\n  \"confidence\": 0.2\n}"}}}}}}};
+        // If parsing fails, content is missing, or extracted JSON is not valid, generate a fallback JSON
+        std::cout << "⚠️  JSON processing failed in callVisionAIModel, generating fallback action..." << std::endl;
+        // The raw full_text (if available and parsing attempted) would have been logged by extractJsonFromString.
 
-        return fallback_response;
+        json fallback_action = {
+            {"action_type", "wait"},
+            {"target_description", "interface"},
+            {"value", "2000"},
+            {"explanation", "Fallback action - JSON processing failed"},
+            {"confidence", 0.2}};
+        // This function, unlike callAIModel, is expected to return the action JSON directly, not wrapped.
+        return fallback_action;
     }
-    catch (const std::exception &e)
+    catch (const std::exception &e) // This catch block is for the initial parsing of the whole API response
     {
-        std::cerr << "Failed to parse vision AI response: " << e.what() << std::endl;
-        std::cerr << "Raw response: " << response_data << std::endl;
-        return json::object();
+        std::cerr << "Failed to parse the main vision API response: " << e.what() << std::endl;
+        std::cerr << "Raw vision API response: " << response_data << std::endl;
+        // Return a fallback action in case of major API response parsing failure
+        json fallback_action = {
+            {"action_type", "wait"},
+            {"target_description", "interface"},
+            {"value", "2000"},
+            {"explanation", "Fallback action - Main API response parsing failed"},
+            {"confidence", 0.1}};
+        return fallback_action;
     }
-#endif
 }
 
+// TODO: Unit Test: Add integration tests for these functions, mocking curl calls and verifying prompt construction and response parsing.
 // Dynamic Intent Analysis Functions - Replace Hardcoded Logic with AI
 json callIntentAI(const std::string &api_key, const std::string &user_request)
 {
-#ifdef NO_CURL
-    std::cout << "⚠️  HTTP functionality disabled - libcurl not available" << std::endl;
-    // Return mock response for testing
-    json mock_response = {
-        {"is_vision_task", true},
-        {"requires_app_launch", true},
-        {"target_application", "notepad.exe"},
-        {"app_name", "notepad"},
-        {"requires_typing", true},
-        {"text_to_type", "Hello"},
-        {"requires_interaction", false},
-        {"confidence", 0.8}};
-    return mock_response;
-#else
     CURL *curl;
     CURLcode res;
     std::string response_data;
@@ -383,6 +336,8 @@ json callIntentAI(const std::string &api_key, const std::string &user_request)
 
     std::string url = "https://openrouter.ai/api/v1/chat/completions";
 
+    // TODO: Review the effectiveness of this prompt. Consider adding a line like:
+    // "Ensure the entire response is a single, valid JSON object with no additional text or explanations."
     std::string intent_prompt =
         "You are an expert Windows automation assistant that analyzes user requests to determine the exact actions needed. "
         "Analyze the following user request and respond with a JSON object containing the intent analysis.\n\n"
@@ -451,48 +406,28 @@ json callIntentAI(const std::string &api_key, const std::string &user_request)
             if (choice.contains("message") && choice["message"].contains("content"))
             {
                 std::string content = choice["message"]["content"];
-
-                // Try to extract JSON from the response
-                size_t json_start = content.find_first_of('{');
-                size_t json_end = content.find_last_of('}');
-
-                if (json_start != std::string::npos && json_end != std::string::npos)
-                {
-                    std::string json_str = content.substr(json_start, json_end - json_start + 1);
-                    try
-                    {
-                        return json::parse(json_str);
-                    }
-                    catch (const json::parse_error &e)
-                    {
-                        std::cerr << "Failed to parse intent JSON: " << e.what() << std::endl;
-                    }
-                }
+                json extracted_json = extractJsonFromString(content);
+                // If extraction fails, extractJsonFromString logs and returns empty json::object(),
+                // which is the desired behavior for callIntentAI on failure.
+                // If content was present but parsing failed, extractJsonFromString already logged it.
+                return extracted_json;
             }
         }
+        std::cerr << "Unexpected response format from Intent AI API" << std::endl;
+        // Log the raw response if the structure is unexpected.
+        std::cerr << "Full Intent AI response: " << response.dump(2) << std::endl;
     }
-    catch (const std::exception &e)
+    catch (const std::exception &e) // This catch block is for the initial parsing of the whole API response
     {
-        std::cerr << "Failed to parse intent response: " << e.what() << std::endl;
+        std::cerr << "Failed to parse the main Intent API response: " << e.what() << std::endl;
+        std::cerr << "Raw Intent API response: " << response_data << std::endl;
     }
 
-    return json::object();
-#endif
+    return json::object(); // Default return if other paths fail
 }
 
 json callVisionAI(const std::string &api_key, const std::string &task, const std::string &screen_description, const std::vector<std::string> &available_elements)
 {
-#ifdef NO_CURL
-    std::cout << "⚠️  HTTP functionality disabled - libcurl not available" << std::endl;
-    // Return mock response for testing
-    json mock_response = {
-        {"action_type", "type"},
-        {"target_description", "text input area"},
-        {"value", "Hello"},
-        {"explanation", "Mock vision AI response"},
-        {"confidence", 0.7}};
-    return mock_response;
-#else
     CURL *curl;
     CURLcode res;
     std::string response_data;
@@ -579,30 +514,24 @@ json callVisionAI(const std::string &api_key, const std::string &task, const std
             {
                 std::string content = choice["message"]["content"];
 
-                // Try to extract JSON from the response
-                size_t json_start = content.find_first_of('{');
-                size_t json_end = content.find_last_of('}');
-
-                if (json_start != std::string::npos && json_end != std::string::npos)
-                {
-                    std::string json_str = content.substr(json_start, json_end - json_start + 1);
-                    try
-                    {
-                        return json::parse(json_str);
-                    }
-                    catch (const json::parse_error &e)
-                    {
-                        std::cerr << "Failed to parse vision AI JSON: " << e.what() << std::endl;
-                    }
-                }
+                // This function `callVisionAI` seems to have a different JSON structure expectation
+                // than `callVisionAIModel`. It expects the direct action JSON.
+                std::string content = choice["message"]["content"];
+                json extracted_json = extractJsonFromString(content);
+                // If extraction fails, extractJsonFromString logs and returns empty json::object()
+                // If content was present but parsing failed, extractJsonFromString already logged it.
+                return extracted_json; // Return the parsed JSON or an empty object on failure
             }
         }
+        std::cerr << "Unexpected response format from Vision AI API (callVisionAI)" << std::endl;
+        // Log the raw response if the structure is unexpected.
+        std::cerr << "Full Vision AI response (callVisionAI): " << response.dump(2) << std::endl;
     }
-    catch (const std::exception &e)
+    catch (const std::exception &e) // This catch block is for the initial parsing of the whole API response
     {
-        std::cerr << "Failed to parse vision AI response: " << e.what() << std::endl;
+        std::cerr << "Failed to parse the main Vision AI API response (callVisionAI): " << e.what() << std::endl;
+        std::cerr << "Raw Vision AI response (callVisionAI): " << response_data << std::endl;
     }
 
-    return json::object();
-#endif
+    return json::object(); // Default return if other paths fail
 }

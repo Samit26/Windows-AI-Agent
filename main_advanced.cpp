@@ -35,29 +35,25 @@ public:
     }
     void loadConfiguration()
     {
-        // Try config_advanced.json first, then fallback to config.json
         std::ifstream config_file("config_advanced.json");
         if (!config_file.is_open())
         {
-            config_file.open("config.json");
-            if (!config_file.is_open())
-            {
-                std::cerr << "Could not open config_advanced.json or config.json" << std::endl;
-                std::cerr << "Please ensure one of these configuration files exists." << std::endl;
-                exit(1);
-            }
-            else
-            {
-                std::cout << "📝 Loaded config.json" << std::endl;
-            }
+            std::cerr << "❌ Error: Could not open config_advanced.json" << std::endl;
+            std::cerr << "Please ensure the configuration file 'config_advanced.json' exists in the correct location." << std::endl;
+            exit(1);
         }
         else
         {
-            std::cout << "📝 Loaded config_advanced.json" << std::endl;
+            std::cout << "📝 Loaded configuration from config_advanced.json" << std::endl;
         }
 
         json config;
-        config_file >> config;
+        try {
+            config_file >> config;
+        } catch (const json::parse_error& e) {
+            std::cerr << "❌ Error: Failed to parse config_advanced.json. Malformed JSON: " << e.what() << std::endl;
+            exit(1);
+        }
         api_key = config["api_key"].get<std::string>();
         // Initialize vision capabilities with AI API key
         advanced_executor.setAIApiKey(api_key);
@@ -125,6 +121,7 @@ public:
         std::cout << "  ':quit', 'quit', 'exit', or 'q' - Exit the application" << std::endl;
         std::cout << "========================================" << std::endl;
     }
+    // TODO: Unit Test: Consider tests for processUserInput logic, mocking AI calls and executor actions.
     void processUserInput(const std::string &input)
     {
         // Handle special commands
@@ -146,79 +143,121 @@ public:
             // Process input through context manager
             std::string contextual_prompt = context_manager.getContextualPrompt(input);
             // Call AI Model API with enhanced context
-            json response = callAIModel(api_key, contextual_prompt);            if (response.contains("type"))
+            json response = callAIModel(api_key, contextual_prompt);
+
+            // Enhanced Error Handling for AI Response
+            if (response.empty() || response.is_null()) {
+                std::cerr << "❌ Error in processUserInput: AI model returned an empty or invalid JSON response." << std::endl;
+                // Optionally, inform the user if this is a critical failure path
+                // std::cout << "⚠️ AI service seems to be having issues. Please try again later." << std::endl;
+                return;
+            }
+
+            if (!response.contains("type")) {
+                std::cerr << "❌ Error in processUserInput: AI response JSON does not contain a 'type' field. Response: "
+                          << response.dump(2) << std::endl;
+                std::cout << "⚠️ AI response was not in the expected format. The response was: " << response.dump(2) << std::endl;
+                return;
+            }
+
+            // Proceed with processing if "type" field exists
+            std::string response_type = response["type"];
+
+            if (response_type == "powershell_script")
             {
-                std::string response_type = response["type"];
-                
-                if (response_type == "powershell_script")
-                {
-                    // Handle PowerShell script execution
-                    TaskPlan plan = task_planner.planTask(input, response);
-                    displayTaskPlan(plan);
-
-                    bool proceed = true;
-                    if (advanced_executor.getExecutionMode() == ExecutionMode::INTERACTIVE)
-                    {
-                        proceed = askForConfirmation(response);
-                    }
-
-                    if (proceed)
-                    {
-                        ExecutionResult result = advanced_executor.executeWithPlan(plan);
-                        context_manager.addToHistory(input,
-                                                     response.value("explanation", "Executed script"),
-                                                     response.dump(),
-                                                     result.success);
-                        displayExecutionResult(result);
-
-                        if (learning_enabled)
-                        {
-                            advanced_executor.learnFromExecution(response, result);
-                        }
-                    }
-                    else
-                    {
-                        std::cout << "🚫 Execution cancelled by user." << std::endl;
-                    }
+                if (!response.contains("script")) {
+                    std::cerr << "❌ Error in processUserInput: PowerShell script task is missing 'script' field. Response: "
+                              << response.dump(2) << std::endl;
+                    std::cout << "⚠️ AI response for PowerShell script was malformed (missing 'script')." << std::endl;
+                    return;
                 }
-                else if (response_type == "vision_task")
+                // Handle PowerShell script execution
+                TaskPlan plan = task_planner.planTask(input, response);
+                displayTaskPlan(plan);
+
+                bool proceed = true;
+                if (advanced_executor.getExecutionMode() == ExecutionMode::INTERACTIVE)
                 {
-                    // Handle vision task - first execute initial action if present
-                    if (response.contains("initial_action"))
+                    proceed = askForConfirmation(response);
+                }
+
+                if (proceed)
+                {
+                    ExecutionResult result = advanced_executor.executeWithPlan(plan);
+                    context_manager.addToHistory(input,
+                                                 response.value("explanation", "Executed script"),
+                                                 response.dump(),
+                                                 result.success);
+                    displayExecutionResult(result);
+
+                    if (learning_enabled)
                     {
-                        std::string initial_cmd = response["initial_action"];
-                        std::cout << "🚀 Launching application: " << initial_cmd << std::endl;
-                        
-                        // Execute the launch command first
-                        json launch_task = {
-                            {"type", "powershell_script"},
-                            {"script", {initial_cmd}},
-                            {"explanation", "Launching required application"}
-                        };
-                        
-                        TaskPlan launch_plan = task_planner.planTask("Launch application", launch_task);
-                        ExecutionResult launch_result = advanced_executor.executeWithPlan(launch_plan);
-                        
-                        if (!launch_result.success)
-                        {
-                            std::cout << "❌ Failed to launch application. Aborting vision task." << std::endl;
-                            return;
-                        }
-                        
-                        // Wait for app to load
-                        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                        advanced_executor.learnFromExecution(response, result);
                     }
-                    
-                    // Now execute the vision task
-                    std::string objective = response.value("objective", input);
-                    handleVisionTask(objective);
                 }
                 else
                 {
-                    // Handle text response
-                    std::cout << "💬 AI Response: " << response.value("content", "No valid response") << std::endl;
-                    context_manager.addToHistory(input, response.dump(), "text_response", true);
+                    std::cout << "🚫 Execution cancelled by user." << std::endl;
                 }
+            }
+            else if (response_type == "vision_task")
+            {
+                // This block handles when callAIModel *directly* identifies a vision_task,
+                // bypassing the isVisionTask() -> callIntentAI() path.
+                if (!response.contains("objective")) {
+                     std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing 'objective' field. Response: "
+                               << response.dump(2) << std::endl;
+                     // If objective is critical and cannot be defaulted to 'input', consider returning.
+                     // For now, it defaults to 'input' via .value("objective", input) below.
+                }
+                if (!response.contains("initial_action") && !response.contains("objective")) {
+                     std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing both 'initial_action' and 'objective'. Response: "
+                               << response.dump(2) << std::endl;
+                     // This task might be too vague to proceed.
+                }
+
+                // Handle vision task - first execute initial action if present
+                if (response.contains("initial_action"))
+                {
+                    std::string initial_cmd = response["initial_action"];
+                    std::cout << "🚀 Launching application (direct vision_task): " << initial_cmd << std::endl;
+
+                    json launch_task = {
+                        {"type", "powershell_script"},
+                        {"script", {initial_cmd}},
+                        {"explanation", "Launching required application for vision task"}
+                    };
+
+                    TaskPlan launch_plan = task_planner.planTask("Launch application for vision task", launch_task);
+                    ExecutionResult launch_result = advanced_executor.executeWithPlan(launch_plan);
+
+                    if (!launch_result.success)
+                    {
+                        std::cout << "❌ Failed to launch application for vision task. Aborting." << std::endl;
+                        return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                }
+
+                std::string objective = response.value("objective", input); // Default to original input if objective is missing
+                handleVisionTask(objective);
+            }
+            else // Handles "text" type or any other unknown types
+            {
+                std::string content = response.value("content", "");
+                if (content.empty() && response_type != "text") {
+                     std::cerr << "⚠️ Warning in processUserInput: AI response type '" << response_type
+                               << "' but 'content' field is missing or empty. Response: " << response.dump(2) << std::endl;
+                     std::cout << "💬 AI Response: Received an unusual response type '" << response_type << "' without content." << std::endl;
+                } else if (content.empty() && response_type == "text") {
+                     std::cerr << "⚠️ Warning in processUserInput: AI response type 'text' but 'content' is empty. Response: "
+                               << response.dump(2) << std::endl;
+                     std::cout << "💬 AI returned an empty text response." << std::endl;
+                }
+                else {
+                    std::cout << "💬 AI Response: " << content << std::endl;
+                }
+                context_manager.addToHistory(input, response.dump(), response_type, true); // Store actual type
             }
         }
         catch (const std::exception &e)
@@ -345,23 +384,31 @@ public:
         {
             json intent = callIntentAI(api_key, input);
 
-            if (intent.contains("is_vision_task"))
-            {
-                bool is_vision = intent["is_vision_task"];
-                double confidence = intent.value("confidence", 0.5);
-
-                std::cout << "🤖 AI Intent Analysis: " << (is_vision ? "Vision Task" : "Regular Task")
-                          << " (confidence: " << (confidence * 100) << "%)" << std::endl;
-
-                return is_vision;
+            if (intent.empty() || intent.is_null()) {
+                std::cerr << "⚠️ Warning in isVisionTask: AI intent analysis returned empty or null JSON. Defaulting to non-vision task. Raw input: " << input << std::endl;
+                return false; // Default to non-vision task
             }
+
+            if (!intent.contains("is_vision_task")) {
+                std::cerr << "⚠️ Warning in isVisionTask: AI intent JSON is missing 'is_vision_task' field. Defaulting to non-vision task. Intent: "
+                          << intent.dump(2) << std::endl;
+                return false; // Default to non-vision task
+            }
+
+            bool is_vision = intent["is_vision_task"];
+            double confidence = intent.value("confidence", 0.5);
+
+            std::cout << "🤖 AI Intent Analysis: " << (is_vision ? "Vision Task" : "Regular Task")
+                        << " (confidence: " << (confidence * 100) << "%)" << std::endl;
+
+            return is_vision;
         }
         catch (const std::exception &e)
         {
-            std::cout << "⚠️ AI intent analysis failed: " << e.what() << std::endl;
+            std::cerr << "❌ Error in isVisionTask during AI call: " << e.what() << ". Defaulting to non-vision task for input: " << input << std::endl;
         }
 
-        // If AI fails, default to false (use PowerShell)
+        // If AI fails or JSON is malformed, default to false
         return false;
     }
 

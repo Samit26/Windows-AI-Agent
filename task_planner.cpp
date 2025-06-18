@@ -54,6 +54,7 @@ std::string TaskPlanner::generatePlanId() {
     return ss.str();
 }
 
+// TODO: Unit Test: Add tests for planTask to verify correct TaskPlan creation from AI context.
 TaskPlan TaskPlanner::planTask(const std::string& user_request, const json& context) {
     TaskPlan plan;
     plan.plan_id = generatePlanId();
@@ -93,8 +94,12 @@ TaskPlan TaskPlanner::planTask(const std::string& user_request, const json& cont
 std::vector<Task> TaskPlanner::breakDownComplexTask(const std::string& task_description) {
     std::vector<Task> subtasks;
     
-    // This is a simplified implementation
-    // In a real system, this would use AI to intelligently break down tasks
+    // TODO: Placeholder Implementation
+    // Expected: This function should take a complex task description and use an LLM call
+    // (e.g., to a planning model or a general LLM with specific instructions)
+    // to break it down into a sequence of smaller, manageable sub-tasks.
+    // Each sub-task should be well-defined and potentially executable by other agent components.
+    // The current implementation is a simplified stub.
     Task main_task;
     main_task.id = generateTaskId();
     main_task.description = task_description;
@@ -192,7 +197,11 @@ void TaskPlanner::cleanupCompletedTasks() {
 std::vector<std::string> TaskPlanner::suggestAlternatives(const std::string& failed_task) {
     std::vector<std::string> alternatives;
     
-    // Simple suggestion system - in reality this would be AI-powered
+    // TODO: Placeholder Implementation
+    // Expected: This function should analyze a failed task and suggest alternative
+    // approaches or commands. This would ideally involve an LLM call, providing context
+    // about the failed task and asking for troubleshooting steps or different methods.
+    // The current implementation is a simple rule-based stub.
     if (failed_task.find("open") != std::string::npos) {
         alternatives.push_back("Try using Start-Process instead");
         alternatives.push_back("Check if the application is installed");
