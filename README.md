@@ -6,7 +6,7 @@
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://reactjs.org/)
 [![Electron](https://img.shields.io/badge/Electron-Latest-47848f.svg)](https://electronjs.org/)
 
-An advanced AI-powered Windows automation agent that uses Google's Gemini API to understand natural language commands and execute them safely on Windows systems. Features both a powerful C++ backend and a modern Electron-based frontend interface.
+An advanced AI-powered Windows automation agent that uses a powerful Large Language Model (currently DeepSeek R1 via OpenRouter API) to understand natural language commands, formulate complex multi-step plans (including dynamic content generation), and execute them on Windows systems using PowerShell and vision-guided UI automation. Features both a powerful C++ backend and a modern Electron-based frontend interface.
 
 ## ⚡ Quick Start
 
@@ -29,13 +29,14 @@ An advanced AI-powered Windows automation agent that uses Google's Gemini API to
 
 ### Core AI Capabilities
 
-- **Natural Language Processing**: Communicate with your computer using plain English
-- **Context Memory & Learning**: Remembers previous interactions and learns from executions
-- **Advanced Task Planning**: Breaks down complex tasks into manageable steps
-- **Multi-Modal Input Support**: Voice input and screenshot analysis capabilities
-- **Safe Execution Environment**: Built-in safety checks and confirmation prompts
-- **Session Management**: Saves and restores conversation history
-- **Multiple Execution Modes**: Safe, Interactive, and Autonomous modes
+- **Natural Language Processing**: Communicate with your computer using plain English.
+- **Dynamic Task Planning**: LLM generates complex, multi-step plans in JSON format, including sequences of PowerShell scripts, vision-guided actions, and content generation steps.
+- **Orchestrated Content Generation**: Supports tasks requiring text generation by the LLM as an intermediate step (e.g., writing stories, emails, code snippets) and then using that content in subsequent actions.
+- **Vision-Guided UI Automation**: Interacts with UI elements based on screen analysis. (Note: Core screen analysis is via Windows GDI; advanced element detection and OCR are placeholder functionalities requiring further development, potentially with OpenCV and Tesseract).
+- **Multi-Modal Input Support**: Screenshot analysis is a core part of vision tasks. Voice input is currently a placeholder and requires integration with a speech-to-text service.
+- **Safe Execution Environment**: Built-in safety checks and confirmation prompts for potentially risky operations.
+- **Multiple Execution Modes**: Safe, Interactive, and Autonomous modes to control the agent's behavior.
+- **HTTP API with Vision Endpoints**: Includes `/api/vision/analyzeScreen` for screen analysis and `/api/vision/executeAction` for vision-guided commands.
 
 ### User Interfaces
 
@@ -48,36 +49,54 @@ An advanced AI-powered Windows automation agent that uses Google's Gemini API to
 
 ### Core Components
 
-| Component                           | Purpose                         | Language         | Key Features                              |
-| ----------------------------------- | ------------------------------- | ---------------- | ----------------------------------------- |
-| **AI Agent** (`main_advanced.cpp`)  | Full-featured CLI + HTTP server | C++17            | All features, HTTP API, multi-modal       |
-| **Frontend App** (`frontend/`)      | Modern desktop UI               | React + Electron | Chat interface, real-time updates         |
-| **HTTP Server** (`http_server.cpp`) | RESTful API backend             | C++17            | CORS support, JSON API endpoints          |
-| **Context Manager**                 | Memory and learning             | C++17            | Session persistence, conversation history |
-| **Task Planner**                    | AI task breakdown               | C++17            | Complex task analysis and planning        |
-| **Executor**                        | Safe command execution          | C++17            | Multiple safety modes, rollback support   |
-| **Multimodal Handler**              | Voice/image processing          | C++17            | Speech recognition, image analysis        |
+| Component                                 | Purpose                                                                 | Language         | Key Features                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------- |
+| **AI Agent** (`main_advanced.cpp`)        | Main application logic, CLI, and overall orchestration.                 | C++17            | Initializes components, handles user input loop, manages execution modes.    |
+| **Frontend App** (`frontend/`)            | Modern desktop UI for interaction.                                      | React + Electron | Chat interface, settings, real-time updates (connects to HTTP Server).       |
+| **HTTP Server** (`http_server.cpp`)       | Provides a RESTful API for the frontend and external integrations.      | C++17            | Uses `httplib.h`. Endpoints for task execution, vision analysis, etc.        |
+| **AI Model** (`ai_model.cpp`)             | Interface to the Large Language Model (LLM).                            | C++17            | Constructs prompts, calls OpenRouter API (DeepSeek R1), parses responses.    |
+| **Task Planner** (`task_planner.cpp`)     | Interprets LLM-generated plans and orchestrates execution steps.        | C++17            | Handles multi-step plans, content generation requests, and sequences tasks.  |
+| **Advanced Executor** (`advanced_executor.cpp`) | Executes planned tasks, manages safety, and integrates vision.    | C++17            | PowerShell execution, calls VisionGuidedExecutor, safety checks.             |
+| **Vision-Guided Executor** (`vision_guided_executor.cpp`) | Orchestrates vision-based UI automation tasks.          | C++17            | Uses VisionProcessor for screen analysis and UI interaction.                 |
+| **Vision Processor** (`vision_processor.cpp`) | Handles screen capture, basic UI element detection, and OS interaction. | C++17            | GDI for screenshots, Windows API for clicks/typing. (OpenCV optional).     |
+| **Multimodal Handler** (`multimodal_handler.cpp`) | Manages different input types (text, voice placeholder, image analysis). | C++17            | Integrates VisionProcessor for screen analysis. Voice/Image analysis are placeholders. |
 
 ### Communication Flow
 
 ```
-┌─────────────────┐    HTTP API    ┌──────────────────┐
-│   Frontend UI   │ ◄────────────► │   HTTP Server    │
-│   (Electron)    │                │   (Port 8080)    │
-└─────────────────┘                └──────────────────┘
-                                            │
-                                            ▼
-                                   ┌──────────────────┐
-                                   │  Advanced Agent  │
-                                   │     (Core AI)    │
-                                   └──────────────────┘
-                                            │
-                                            ▼
-                                   ┌──────────────────┐
-                                   │   Gemini API     │
-                                   │   (Google AI)    │
-                                   └──────────────────┘
+┌─────────────────┐      HTTP API      ┌──────────────────┐
+│   Frontend UI   │ ◄────────────────► │   HTTP Server    │
+│   (Electron)    │                    │   (Port 8080)    │
+└─────────────────┘                    └──────────────────┘
+                                              │ ▲
+                                              │ │ (API Calls)
+                                              ▼ │
+                                     ┌──────────────────┐
+                                     │  Advanced Agent  │
+                                     │ (main_advanced.cpp)│
+                                     └──────────────────┘
+                                       │    │        ▲
+                  (Task Execution)   │    │        │ (LLM Results)
+                                     ▼    │        │
+                          ┌─────────────────┴───────────┐
+                          │ TaskPlanner, AdvancedExecutor │
+                          │ VisionGuidedExecutor,       │
+                          │ MultiModalHandler           │
+                          └─────────────────┬───────────┘
+                                     │    │        ▲
+              (Screen Analysis, UI)  │    │        │ (Prompts)
+                                     ▼    │        │
+                            ┌─────────────────┴───────────┐
+                            │ VisionProcessor, AIModel    │
+                            └─────────────────┬───────────┘
+                                              │
+                                              ▼
+                                     ┌──────────────────┐
+                                     │ OpenRouter API   │
+                                     │ (DeepSeek R1 LLM)│
+                                     └──────────────────┘
 ```
+(The communication flow diagram is updated to reflect the new components and interactions.)
 
 ## 📋 Prerequisites
 
@@ -86,7 +105,7 @@ An advanced AI-powered Windows automation agent that uses Google's Gemini API to
 - Windows 10/11
 - CMake 3.10 or higher
 - C++17 compatible compiler (Visual Studio 2017+ or MinGW)
-- Google Gemini API key
+- OpenRouter API key (with access to a model like DeepSeek R1)
 
 ### Frontend (Optional)
 
@@ -111,6 +130,7 @@ Using vcpkg (recommended):
 ```bash
 vcpkg install nlohmann-json curl
 ```
+(Note: OpenCV can be optionally installed via `vcpkg install opencv4` if you wish to enable its features in `VisionProcessor`, but it's not required for core functionality as the code uses it conditionally.)
 
 #### Frontend Dependencies (Optional)
 
@@ -121,33 +141,20 @@ npm install
 
 ### 3. Configure API Key
 
-Copy the example configuration files and add your Gemini API key:
+Create a file named `config_advanced.json` in the root directory of the project. If an example file like `config_advanced.example.json` exists, you can copy and rename it.
 
-```bash
-copy config.example.json config.json
-copy config_advanced.example.json config_advanced.json
-```
-
-Edit `config.json` and `config_advanced.json` to add your Google Gemini API key:
+Edit `config_advanced.json` to add your OpenRouter API key and other settings:
 
 ```json
 {
-  "api_key": "YOUR_ACTUAL_GEMINI_API_KEY_HERE",
-  "server_mode": false
+  "api_key": "YOUR_OPENROUTER_API_KEY_HERE",
+  "server_mode": false, // Set to true to enable HTTP server for frontend
+  "execution_mode": "interactive", // "safe", "interactive", or "autonomous"
+  "enable_voice": false, // Voice input is currently a placeholder
+  "enable_image_analysis": false // Image analysis for non-screenshot inputs is placeholder
 }
 ```
-
-For HTTP server mode (required for frontend), set `server_mode` to `true`:
-
-```json
-{
-  "api_key": "YOUR_ACTUAL_GEMINI_API_KEY_HERE",
-  "server_mode": true,
-  "execution_mode": "safe",
-  "enable_voice": false,
-  "enable_image_analysis": false
-}
-```
+(Ensure the project now exclusively uses `config_advanced.json` for configuration.)
 
 ### 4. Build the Project
 
@@ -204,15 +211,22 @@ Start the backend in server mode and integrate with the RESTful API:
 
 **Available Endpoints:**
 
-- `POST /api/execute` - Execute AI tasks
-- `GET /api/history` - Get conversation history
-- `GET /api/system-info` - Get system information
-- `POST /api/preferences` - Update user preferences
-- `GET /api/processes` - Get active processes
-- `POST /api/rollback` - Rollback last action
-- `GET /api/suggestions` - Get AI suggestions
-- `POST /api/voice` - Voice input processing
-- `POST /api/image` - Image analysis
+- `POST /api/execute` - Execute AI tasks based on natural language input.
+  - Request Body: `{ "input": "your task description", "mode": "agent" }` (mode can be "agent" or "chatbot")
+  - Response: JSON with execution results or AI's textual response.
+- `GET /api/system-info` - Get system information (e.g., current execution mode).
+- `POST /api/preferences` - Update user preferences (e.g., execution mode).
+- `GET /api/processes` - Get active processes (placeholder, current implementation might be basic).
+- `POST /api/rollback` - Rollback last action (placeholder).
+- `GET /api/suggestions` - Get AI suggestions for improvements (placeholder).
+- `POST /api/voice` - Voice input processing (placeholder, requires speech-to-text integration).
+- `POST /api/image` - Image analysis for uploaded images (placeholder, requires vision model integration).
+- `POST /api/vision/analyzeScreen` - Triggers a detailed screen analysis.
+  - Request Body: (Empty)
+  - Response: JSON containing `screenshot_path`, `application_name`, `window_title`, `overall_description`, and an array of detected `elements` with their properties (coordinates, type, text, confidence).
+- `POST /api/vision/executeAction` - Executes a vision-guided action based on a natural language description.
+  - Request Body: `{ "action_description": "click the button labeled 'Submit'" }`
+  - Response: JSON `ExecutionResult` (success, output, error_message, metadata including vision steps).
 
 ## 🎮 Commands
 
@@ -236,10 +250,9 @@ The modern desktop application provides:
 
 #### Advanced Commands (CLI Only)
 
-- `:voice` - Enable voice input
-- `:screenshot` - Analyze current screen
-- `:history` - Show conversation history
-- `:mode safe/interactive/autonomous` - Change execution mode
+- `:voice` - Enable voice input (currently a placeholder, requires speech-to-text setup).
+- `:screenshot` - Captures and analyzes the current screen, printing a description.
+- `:mode safe/interactive/autonomous` - Change the agent's execution mode.
 
 ## ⚙️ Configuration
 
@@ -263,14 +276,14 @@ The modern desktop application provides:
 ```
 
 ├── Backend (C++)
-│ ├── main_advanced.cpp # AI agent with HTTP server
-│ ├── gemini.cpp/.h # Gemini API integration
-│ ├── executor.cpp/.h # Basic script execution
-│ ├── context_manager.cpp/.h # Context memory and history
-│ ├── task_planner.cpp/.h # Task planning and analysis
-│ ├── advanced_executor.cpp/.h# Advanced execution with safety
-│ ├── multimodal_handler.cpp/.h# Voice and image input
-│ └── http_server.cpp/.h # REST API server
+│ ├── main_advanced.cpp         # AI agent CLI, server mode logic, main orchestration
+│ ├── ai_model.cpp/.h           # Interface to LLM (OpenRouter/DeepSeek R1)
+│ ├── task_planner.cpp/.h       # Interprets LLM plans, orchestrates multi-step tasks & content generation
+│ ├── advanced_executor.cpp/.h  # Executes tasks, manages safety, integrates vision execution
+│ ├── vision_guided_executor.cpp/.h # Orchestrates vision-based UI automation sequences
+│ ├── vision_processor.cpp/.h   # Screen capture, basic UI element detection, OS interaction
+│ ├── multimodal_handler.cpp/.h # Manages different input types (text, voice placeholder, image analysis)
+│ └── http_server.cpp/.h        # REST API server using httplib.h
 ├── Frontend (Electron + React)
 │ ├── electron/ # Electron main process
 │ ├── src/ # React application source
@@ -296,10 +309,12 @@ The modern desktop application provides:
 - **Language**: C++17
 - **Build System**: CMake
 - **Dependencies**:
-  - nlohmann-json for JSON parsing
-  - libcurl for HTTP requests to Gemini API
-  - Native Windows APIs for system interaction
-- **Architecture**: Modular design with separate components for AI, execution, context management
+  - nlohmann-json for JSON parsing.
+  - libcurl for HTTP requests to the OpenRouter API.
+  - httplib.h for the C++ HTTP server.
+  - Native Windows APIs for system interaction (GDI for basic screenshots, input simulation, window management).
+  - OpenCV (optional, for advanced image processing features in `VisionProcessor` if enabled and installed).
+- **Architecture**: Modular design with components for AI interaction, planning, execution (PowerShell, Vision), and multimodal input handling.
 
 #### Frontend
 
@@ -312,12 +327,14 @@ The modern desktop application provides:
 
 ### Building
 
-The project uses CMake for the C++ backend and npm for the frontend:
+The project uses CMake for the C++ backend and npm for the frontend.
 
-#### Backend Dependencies
+#### Backend Dependencies (managed via `vcpkg.json`)
 
-- nlohmann-json for JSON parsing
-- libcurl for HTTP requests to Gemini API
+- **nlohmann-json**: For JSON parsing and manipulation.
+- **libcurl**: For making HTTP requests to the OpenRouter API.
+- **httplib.h**: (Typically included as a header-only library, but if managed via vcpkg, list here). The project now uses this for its HTTP server.
+- **OpenCV**: (Optional) For advanced vision processing features. Not included in the default `vcpkg.json` but can be added if needed.
 
 #### Frontend Dependencies
 
@@ -399,21 +416,20 @@ This software can execute system commands on your computer. Use with caution and
 
 If you encounter any issues or have questions:
 
-1. **Check the Documentation**: Review this README and the [BUILD.md](BUILD.md) guide
-2. **Search Issues**: Check the [Issues](https://github.com/yourusername/windows-ai-agent/issues) page for similar problems
-3. **Create an Issue**: Open a new issue with detailed information:
-   - Your Windows version and system specifications
-   - Whether you're using CLI or frontend interface
-   - Backend/frontend versions and configuration (without API keys)
-   - Complete error messages and logs
-   - Steps to reproduce the issue
+1. **Search Issues**: Check the [Issues](https://github.com/yourusername/windows-ai-agent/issues) page for similar problems.
+2. **Create an Issue**: Open a new issue with detailed information:
+   - Your Windows version and system specifications.
+   - Whether you're using CLI or frontend interface.
+   - Backend/frontend versions and `config_advanced.json` settings (excluding API keys).
+   - Complete error messages and logs.
+   - Steps to reproduce the issue.
 
 ### Getting Help
 
-- **Frontend Issues**: Include browser console logs and Electron version
-- **Backend Issues**: Include CMake output and compilation errors
-- **API Issues**: Verify your Gemini API key and network connectivity
-- **Performance Issues**: Include system resource usage and task complexity
+- **Frontend Issues**: Include browser console logs and Electron version.
+- **Backend Issues**: Include console output, CMake output, and compilation errors if applicable.
+- **API Issues**: Verify your OpenRouter API key and network connectivity.
+- **Performance Issues**: Include system resource usage and task complexity.
 
 ## 🌟 Roadmap
 
@@ -433,28 +449,28 @@ If you encounter any issues or have questions:
 - ✅ RESTful HTTP API for external integrations
 - ✅ Real-time system monitoring and process management
 - ✅ Enhanced safety features and execution modes
-- ✅ Voice input and screenshot analysis capabilities
+- ✅ Voice input (placeholder) and screenshot analysis capabilities.
+- ✅ New `generate_content_and_execute` and `multi_step_plan` task types for complex planning.
+- ✅ HTTP API now uses `httplib.h` and includes vision endpoints (`/api/vision/analyzeScreen`, `/api/vision/executeAction`).
+- ✅ Removed `ContextManager` and `Executor` components, streamlining focus on `AdvancedExecutor` and LLM-driven planning.
 
 ## 🙏 Acknowledgments
 
-- **Google Gemini API** for natural language processing and AI capabilities
-- **nlohmann/json** for robust JSON parsing and manipulation
-- **libcurl** for reliable HTTP communication
-- **Electron** for cross-platform desktop application framework
-- **React** for modern, reactive user interface components
-- **Vite** for fast development and optimized builds
-- **Lucide React** for beautiful, consistent iconography
+- **OpenRouter API (and models like DeepSeek R1)** for providing access to powerful LLMs for natural language processing, planning, and AI capabilities.
+- **nlohmann/json** for robust JSON parsing and manipulation.
+- **libcurl** for reliable HTTP communication.
+- **cpp-httplib/httplib.h** for the C++ HTTP server implementation.
+- **Electron** for cross-platform desktop application framework.
+- **React** for modern, reactive user interface components.
+- **Vite** for fast development and optimized builds.
+- **Lucide React** for beautiful, consistent iconography.
 
 ### Special Thanks
 
-- The open-source community for invaluable libraries and tools
-- Beta testers who provided feedback during development
-- Contributors who helped improve documentation and code quality
+- The open-source community for invaluable libraries and tools.
+- Beta testers who provided feedback during development.
+- Contributors who helped improve documentation and code quality.
 
 ---
 
 **Made with ❤️ for Windows power users and automation enthusiasts**
-
-For more detailed build instructions, see [BUILD.md](BUILD.md)  
-For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md)  
-For version history, see [CHANGELOG.md](CHANGELOG.md)
