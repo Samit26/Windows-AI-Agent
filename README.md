@@ -48,16 +48,15 @@ An advanced AI-powered Windows automation agent that uses Google's Gemini API to
 
 ### Core Components
 
-| Component                                | Purpose                         | Language         | Key Features                              |
-| ---------------------------------------- | ------------------------------- | ---------------- | ----------------------------------------- |
-| **Basic Agent** (`main.cpp`)             | Simple CLI interface            | C++17            | Direct command execution, basic safety    |
-| **Advanced Agent** (`main_advanced.cpp`) | Full-featured CLI + HTTP server | C++17            | All features, HTTP API, multi-modal       |
-| **Frontend App** (`frontend/`)           | Modern desktop UI               | React + Electron | Chat interface, real-time updates         |
-| **HTTP Server** (`http_server.cpp`)      | RESTful API backend             | C++17            | CORS support, JSON API endpoints          |
-| **Context Manager**                      | Memory and learning             | C++17            | Session persistence, conversation history |
-| **Task Planner**                         | AI task breakdown               | C++17            | Complex task analysis and planning        |
-| **Executor**                             | Safe command execution          | C++17            | Multiple safety modes, rollback support   |
-| **Multimodal Handler**                   | Voice/image processing          | C++17            | Speech recognition, image analysis        |
+| Component                           | Purpose                         | Language         | Key Features                              |
+| ----------------------------------- | ------------------------------- | ---------------- | ----------------------------------------- |
+| **AI Agent** (`main_advanced.cpp`)  | Full-featured CLI + HTTP server | C++17            | All features, HTTP API, multi-modal       |
+| **Frontend App** (`frontend/`)      | Modern desktop UI               | React + Electron | Chat interface, real-time updates         |
+| **HTTP Server** (`http_server.cpp`) | RESTful API backend             | C++17            | CORS support, JSON API endpoints          |
+| **Context Manager**                 | Memory and learning             | C++17            | Session persistence, conversation history |
+| **Task Planner**                    | AI task breakdown               | C++17            | Complex task analysis and planning        |
+| **Executor**                        | Safe command execution          | C++17            | Multiple safety modes, rollback support   |
+| **Multimodal Handler**              | Voice/image processing          | C++17            | Speech recognition, image analysis        |
 
 ### Communication Flow
 
@@ -187,18 +186,14 @@ npm run build
    ```
    This will open the modern Electron-based desktop application.
 
-### Option 2: Command Line Interface
-
-#### Basic AI Agent
-
-```bash
-./windows_ai_agent.exe
-```
-
-#### Advanced AI Agent
+### Command Line Interface
 
 ```bash
 ./windows_ai_agent_advanced.exe
+```
+
+./windows_ai_agent_advanced.exe
+
 ```
 
 ### Option 3: HTTP API Integration
@@ -266,33 +261,33 @@ The modern desktop application provides:
 ### Project Structure
 
 ```
+
 ├── Backend (C++)
-│   ├── main.cpp                 # Basic AI agent
-│   ├── main_advanced.cpp        # Advanced AI agent with HTTP server
-│   ├── gemini.cpp/.h           # Gemini API integration
-│   ├── executor.cpp/.h         # Basic script execution
-│   ├── context_manager.cpp/.h  # Context memory and history
-│   ├── task_planner.cpp/.h     # Task planning and analysis
-│   ├── advanced_executor.cpp/.h# Advanced execution with safety
-│   ├── multimodal_handler.cpp/.h# Voice and image input
-│   └── http_server.cpp/.h      # REST API server
+│ ├── main_advanced.cpp # AI agent with HTTP server
+│ ├── gemini.cpp/.h # Gemini API integration
+│ ├── executor.cpp/.h # Basic script execution
+│ ├── context_manager.cpp/.h # Context memory and history
+│ ├── task_planner.cpp/.h # Task planning and analysis
+│ ├── advanced_executor.cpp/.h# Advanced execution with safety
+│ ├── multimodal_handler.cpp/.h# Voice and image input
+│ └── http_server.cpp/.h # REST API server
 ├── Frontend (Electron + React)
-│   ├── electron/               # Electron main process
-│   ├── src/                   # React application source
-│   │   ├── components/        # React components
-│   │   ├── AIAgentService.js  # API client service
-│   │   └── App.jsx           # Main application component
-│   ├── package.json          # Node.js dependencies
-│   └── vite.config.js        # Vite build configuration
+│ ├── electron/ # Electron main process
+│ ├── src/ # React application source
+│ │ ├── components/ # React components
+│ │ ├── AIAgentService.js # API client service
+│ │ └── App.jsx # Main application component
+│ ├── package.json # Node.js dependencies
+│ └── vite.config.js # Vite build configuration
 ├── Configuration
-│   ├── config.json           # Basic agent configuration
-│   ├── config_advanced.json  # Advanced agent configuration
-│   └── vcpkg.json           # C++ dependencies
+│ ├── config_advanced.json # Agent configuration
+│ └── vcpkg.json # C++ dependencies
 └── Build System
-    ├── CMakeLists.txt        # CMake configuration
-    ├── Makefile             # Alternative build system
-    └── build/               # Build artifacts
-```
+├── CMakeLists.txt # CMake configuration
+├── Makefile # Alternative build system
+└── build/ # Build artifacts
+
+````
 
 ### Technology Stack
 
@@ -379,7 +374,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Debug ..
 cmake --build .
-```
+````
 
 #### Frontend Development
 

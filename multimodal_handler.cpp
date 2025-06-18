@@ -9,6 +9,12 @@
 MultiModalHandler::MultiModalHandler() 
     : voice_enabled(false), image_analysis_enabled(false), temp_directory("temp") {
     std::filesystem::create_directories(temp_directory);
+    
+    // Initialize vision processor
+    vision_processor = std::make_unique<VisionProcessor>();
+    vision_processor->setTempDirectory(temp_directory + "/vision");
+    
+    std::cout << "🔍 MultiModalHandler initialized with vision capabilities" << std::endl;
 }
 
 MultiModalInput MultiModalHandler::processTextInput(const std::string& text) {
@@ -285,11 +291,51 @@ std::string MultiModalHandler::extractTextFromFile(const std::string& file_path)
 }
 
 std::string MultiModalHandler::captureScreen() {
-    // Placeholder implementation - would use Windows API to capture screen
+    if (vision_processor) {
+        return vision_processor->saveScreenshot();
+    }
+    
+    // Fallback to original implementation
     std::string screenshot_path = temp_directory + "/screenshot_" + std::to_string(std::time(nullptr)) + ".png";
-    
-    // Simulate screenshot creation
     std::cout << "📸 Screen captured (simulated): " << screenshot_path << std::endl;
-    
     return screenshot_path;
+}
+
+// Enhanced vision methods
+ScreenAnalysis MultiModalHandler::analyzeCurrentScreen() {
+    if (vision_processor) {
+        return vision_processor->analyzeCurrentScreen();
+    }
+    
+    // Return empty analysis if vision processor not available
+    ScreenAnalysis empty_analysis;
+    empty_analysis.overall_description = "Vision processor not available";
+    return empty_analysis;
+}
+
+std::string MultiModalHandler::captureAndAnalyzeScreen() {
+    ScreenAnalysis analysis = analyzeCurrentScreen();
+    return vision_processor->generateScreenDescription(analysis);
+}
+
+bool MultiModalHandler::findAndClickElement(const std::string& description) {
+    if (vision_processor) {
+        ScreenAnalysis analysis = vision_processor->analyzeCurrentScreen();
+        UIElement element = vision_processor->findElementByText(description, analysis);
+        return vision_processor->clickElement(element);
+    }
+    return false;
+}
+
+bool MultiModalHandler::findAndTypeInElement(const std::string& description, const std::string& text) {
+    if (vision_processor) {
+        ScreenAnalysis analysis = vision_processor->analyzeCurrentScreen();
+        UIElement element = vision_processor->findElementByText(description, analysis);
+        return vision_processor->typeAtElement(element, text);
+    }
+    return false;
+}
+
+VisionProcessor* MultiModalHandler::getVisionProcessor() {
+    return vision_processor.get();
 }

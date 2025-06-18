@@ -2,8 +2,10 @@
 #define MULTIMODAL_HANDLER_H
 
 #include "include/json.hpp"
+#include "vision_processor.h"
 #include <string>
 #include <vector>
+#include <memory>
 
 using json = nlohmann::json;
 
@@ -29,6 +31,7 @@ private:
     bool voice_enabled;
     bool image_analysis_enabled;
     std::string temp_directory;
+    std::unique_ptr<VisionProcessor> vision_processor;
     
     std::string transcribeAudio(const std::string& audio_file);
     std::string analyzeImage(const std::string& image_file);
@@ -69,6 +72,15 @@ public:
     void setTempDirectory(const std::string& path);
     void configureVoiceSettings(const json& settings);
     void configureImageSettings(const json& settings);
+    
+    // Enhanced vision capabilities
+    ScreenAnalysis analyzeCurrentScreen();
+    std::string captureAndAnalyzeScreen();
+    bool findAndClickElement(const std::string& description);
+    bool findAndTypeInElement(const std::string& description, const std::string& text);
+    
+    // Vision processor access
+    VisionProcessor* getVisionProcessor();
 };
 
 #endif // MULTIMODAL_HANDLER_H

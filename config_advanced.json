@@ -1,5 +1,10 @@
 {
-  "api_key": "API_KEY",
+  "api_key": "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",
+  "ai_model": {
+    "provider": "openrouter",
+    "model": "deepseek/deepseek-r1-0528-qwen3-8b:free",
+    "api_url": "https://openrouter.ai/api/v1/chat/completions"
+  },
   "execution_mode": "interactive",
   "enable_voice": false,
   "enable_image_analysis": false,

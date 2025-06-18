@@ -3,10 +3,12 @@
 
 #include "include/json.hpp"
 #include "task_planner.h"
+#include "vision_guided_executor.h"
 #include <string>
 #include <vector>
 #include <map>
 #include <functional>
+#include <memory>
 
 using json = nlohmann::json;
 
@@ -30,11 +32,17 @@ private:
     std::map<std::string, std::function<ExecutionResult(const json&)>> command_handlers;
     json safety_rules;
     std::vector<std::string> dangerous_commands;
-    
-    bool isCommandSafe(const std::string& command);
+    std::unique_ptr<VisionGuidedExecutor> vision_executor;
+    std::string ai_api_key;
+      bool isCommandSafe(const std::string& command);
     bool requiresConfirmation(const std::string& command);
     ExecutionResult executeWindowsCommand(const std::string& command);
     ExecutionResult executePowerShellScript(const std::vector<std::string>& commands);
+    
+    // Vision-related execution methods
+    ExecutionResult executeVisionTask(const json& task_data);
+    ExecutionResult executeUIAutomation(const json& automation_data);
+    bool isVisionTaskSafe(const std::string& task);
     
 public:
     AdvancedExecutor();
@@ -68,6 +76,10 @@ public:
     void registerCommandHandler(const std::string& command_type, 
                                std::function<ExecutionResult(const json&)> handler);
     ExecutionResult callExternalAPI(const std::string& api_name, const json& parameters);
+    
+    // Vision task execution
+    ExecutionResult executeNaturalLanguageTask(const std::string& task);
+    void setAIApiKey(const std::string& api_key);
 };
 
 #endif // ADVANCED_EXECUTOR_H

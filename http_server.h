@@ -63,6 +63,10 @@ private:
     void handleVoiceInput(const json& request_data, HttpResponse& response);
     void handleImageInput(const json& request_data, HttpResponse& response);
     
+    // Vision task handling
+    bool isVisionTask(const std::string& input);
+    json handleVisionTaskRequest(const std::string& input);
+    
 public:
     HttpServer(int port = 8080);
     ~HttpServer();

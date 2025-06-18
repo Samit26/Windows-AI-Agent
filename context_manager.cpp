@@ -104,35 +104,38 @@ void ContextManager::addToHistory(const std::string& user_input, const std::stri
     saveSession();
 }
 
-std::string ContextManager::getContextualPrompt(const std::string& user_input) {
+std::string ContextManager::getContextualPrompt(const std::string& user_input)
+{
     std::string contextual_prompt = "You are an advanced Windows AI assistant with memory and learning capabilities.\n\n";
-    
-    // Add user preferences context
-    if (!user_preferences.empty()) {
+
+    if (!user_preferences.empty())
+    {
         contextual_prompt += "USER PREFERENCES:\n" + user_preferences.dump(2) + "\n\n";
     }
-    
-    // Add recent conversation context
-    if (!conversation_history.empty()) {
+
+    if (!conversation_history.empty())
+    {
         contextual_prompt += "RECENT CONVERSATION HISTORY:\n";
-        int start_idx = std::max(0, (int)conversation_history.size() - 3);        for (int i = start_idx; i < conversation_history.size(); i++) {
+        int start_idx = std::max(0, (int)conversation_history.size() - 3);
+        for (int i = start_idx; i < conversation_history.size(); i++)
+        {
             const auto& entry = conversation_history[i];
             contextual_prompt += "User: " + entry.user_input + "\n";
             contextual_prompt += "Action: " + entry.action_taken + "\n";
             contextual_prompt += "Success: " + std::string(entry.success ? "Yes" : "No") + "\n\n";
         }
     }
-    
-    // Add system state context
-    if (!system_state.empty()) {
+
+    if (!system_state.empty())
+    {
         contextual_prompt += "CURRENT SYSTEM STATE:\n" + system_state.dump(2) + "\n\n";
     }
-    
+
     contextual_prompt += "CURRENT USER REQUEST: " + user_input + "\n\n";
-    
-    contextual_prompt += "Based on the context above, provide a helpful response. If this is similar to a previous request, learn from the past interaction. Your response must be in this exact JSON format:\n\n"
+
+    contextual_prompt += "Based on the context above, provide a helpful response. Your response must be in this exact JSON format:\n\n"
                         "{\n"
-                        "  \"type\": \"powershell_script\",\n" 
+                        "  \"type\": \"powershell_script\",\n"
                         "  \"script\": [\n"
                         "    \"command1\",\n"
                         "    \"command2\"\n"
@@ -141,14 +144,13 @@ std::string ContextManager::getContextualPrompt(const std::string& user_input) {
                         "  \"confidence\": 0.95\n"
                         "}\n\n"
                         "IMPORTANT GUIDELINES:\n"
-                        "1. Only use built-in Windows commands, PowerShell cmdlets, and standard Windows applications\n"
-                        "2. For opening applications, use: Start-Process 'appname' (e.g., calc, notepad, chrome)\n"
+                        "1. Use only built-in Windows commands and standard applications\n"
+                        "2. For opening applications, use: Start-Process 'appname'\n"
                         "3. For websites, use: Start-Process 'https://url'\n"
-                        "4. For calculations, use PowerShell's built-in math: Write-Host \"The result is: $((69+70))\"\n"
-                        "5. For complex tasks like messaging apps, explain limitations and suggest manual alternatives\n"
-                        "6. Never assume third-party modules or apps are installed unless they're standard Windows components\n"
-                        "7. Include confidence score (0.0-1.0) based on how certain you are about the solution\n";
-    
+                        "4. For calculations, use PowerShell's built-in math\n"
+                        "5. For complex tasks, explain limitations and suggest alternatives\n"
+                        "6. Include confidence score (0.0-1.0) based on certainty\n";
+
     return contextual_prompt;
 }
 

@@ -2,8 +2,10 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <thread>
+#include <chrono>
 #include "include/json.hpp"
-#include "gemini.h"
+#include "ai_model.h"
 #include "context_manager.h"
 #include "task_planner.h"
 #include "advanced_executor.h"
@@ -12,7 +14,8 @@
 
 using json = nlohmann::json;
 
-class AdvancedAIAgent {
+class AdvancedAIAgent
+{
 private:
     std::string api_key;
     ContextManager context_manager;
@@ -23,56 +26,86 @@ private:
     bool interactive_mode;
     bool learning_enabled;
     bool server_mode;
-    
+
 public:
-    AdvancedAIAgent() : interactive_mode(true), learning_enabled(true), server_mode(false), http_server(8080) {
+    AdvancedAIAgent() : interactive_mode(true), learning_enabled(true), server_mode(false), http_server(8080)
+    {
         loadConfiguration();
         displayWelcomeMessage();
     }
-    
-    void loadConfiguration() {
-        std::ifstream config_file("config.json");
-        if(!config_file.is_open()) {
-            std::cerr << "Could not open config.json" << std::endl;
-            exit(1);
+    void loadConfiguration()
+    {
+        // Try config_advanced.json first, then fallback to config.json
+        std::ifstream config_file("config_advanced.json");
+        if (!config_file.is_open())
+        {
+            config_file.open("config.json");
+            if (!config_file.is_open())
+            {
+                std::cerr << "Could not open config_advanced.json or config.json" << std::endl;
+                std::cerr << "Please ensure one of these configuration files exists." << std::endl;
+                exit(1);
+            }
+            else
+            {
+                std::cout << "📝 Loaded config.json" << std::endl;
+            }
         }
+        else
+        {
+            std::cout << "📝 Loaded config_advanced.json" << std::endl;
+        }
+
         json config;
         config_file >> config;
         api_key = config["api_key"].get<std::string>();
-        
+        // Initialize vision capabilities with AI API key
+        advanced_executor.setAIApiKey(api_key);
+
         // Load advanced settings if available
-        if (config.contains("execution_mode")) {
+        if (config.contains("execution_mode"))
+        {
             std::string mode = config["execution_mode"];
-            if (mode == "safe") advanced_executor.setExecutionMode(ExecutionMode::SAFE);
-            else if (mode == "interactive") advanced_executor.setExecutionMode(ExecutionMode::INTERACTIVE);
-            else if (mode == "autonomous") advanced_executor.setExecutionMode(ExecutionMode::AUTONOMOUS);
+            if (mode == "safe")
+                advanced_executor.setExecutionMode(ExecutionMode::SAFE);
+            else if (mode == "interactive")
+                advanced_executor.setExecutionMode(ExecutionMode::INTERACTIVE);
+            else if (mode == "autonomous")
+                advanced_executor.setExecutionMode(ExecutionMode::AUTONOMOUS);
         }
-        
-        if (config.contains("enable_voice")) {
+
+        if (config.contains("enable_voice"))
+        {
             bool voice_enabled = config["enable_voice"];
-            if (voice_enabled) {
+            if (voice_enabled)
+            {
                 multimodal_handler.enableVoiceInput();
             }
         }
-          if (config.contains("enable_image_analysis")) {
+        if (config.contains("enable_image_analysis"))
+        {
             bool image_enabled = config["enable_image_analysis"];
-            if (image_enabled) {
+            if (image_enabled)
+            {
                 multimodal_handler.enableImageAnalysis();
             }
         }
-        
+
         // Check for server mode
-        if (config.contains("server_mode")) {
+        if (config.contains("server_mode"))
+        {
             server_mode = config["server_mode"];
         }
-        
+
         // Configure HTTP server if needed
-        if (server_mode) {
-            http_server.setComponents(&advanced_executor, &context_manager, 
-                                    &task_planner, &multimodal_handler, api_key);
+        if (server_mode)
+        {
+            http_server.setComponents(&advanced_executor, &context_manager,
+                                      &task_planner, &multimodal_handler, api_key);
         }
     }
-      void displayWelcomeMessage() {
+    void displayWelcomeMessage()
+    {
         std::cout << "========================================" << std::endl;
         std::cout << "🤖 ADVANCED WINDOWS AI AGENT v2.0 🤖" << std::endl;
         std::cout << "========================================" << std::endl;
@@ -92,162 +125,339 @@ public:
         std::cout << "  ':quit', 'quit', 'exit', or 'q' - Exit the application" << std::endl;
         std::cout << "========================================" << std::endl;
     }
-      void processUserInput(const std::string& input) {
+    void processUserInput(const std::string &input)
+    {
         // Handle special commands
-        if (input.length() > 0 && input[0] == ':') {
+        if (input.length() > 0 && input[0] == ':')
+        {
             handleSpecialCommand(input);
             return;
         }
-        
-        try {
+
+        // Check if this is a vision task (natural language task)
+        if (isVisionTask(input))
+        {
+            handleVisionTask(input);
+            return;
+        }
+
+        try
+        {
             // Process input through context manager
             std::string contextual_prompt = context_manager.getContextualPrompt(input);
-            
-            // Call Gemini API with enhanced context
-            json response = callGemini(api_key, contextual_prompt);
-            
-            if (response.contains("type") && response["type"] == "powershell_script") {
-                // Create task plan
-                TaskPlan plan = task_planner.planTask(input, response);
+            // Call AI Model API with enhanced context
+            json response = callAIModel(api_key, contextual_prompt);            if (response.contains("type"))
+            {
+                std::string response_type = response["type"];
                 
-                // Display plan to user
-                displayTaskPlan(plan);
-                
-                // Ask for confirmation if in interactive mode
-                bool proceed = true;
-                if (advanced_executor.getExecutionMode() == ExecutionMode::INTERACTIVE) {
-                    proceed = askForConfirmation(response);
-                }
-                
-                if (proceed) {
-                    // Execute the plan
-                    ExecutionResult result = advanced_executor.executeWithPlan(plan);
-                    
-                    // Update context with results
-                    context_manager.addToHistory(input, 
-                                               response.value("explanation", "Executed script"),
-                                               response.dump(), 
-                                               result.success);
-                    
-                    // Display results
-                    displayExecutionResult(result);
-                    
-                    // Learn from execution if enabled
-                    if (learning_enabled) {
-                        advanced_executor.learnFromExecution(response, result);
+                if (response_type == "powershell_script")
+                {
+                    // Handle PowerShell script execution
+                    TaskPlan plan = task_planner.planTask(input, response);
+                    displayTaskPlan(plan);
+
+                    bool proceed = true;
+                    if (advanced_executor.getExecutionMode() == ExecutionMode::INTERACTIVE)
+                    {
+                        proceed = askForConfirmation(response);
                     }
-                } else {
-                    std::cout << "🚫 Execution cancelled by user." << std::endl;
+
+                    if (proceed)
+                    {
+                        ExecutionResult result = advanced_executor.executeWithPlan(plan);
+                        context_manager.addToHistory(input,
+                                                     response.value("explanation", "Executed script"),
+                                                     response.dump(),
+                                                     result.success);
+                        displayExecutionResult(result);
+
+                        if (learning_enabled)
+                        {
+                            advanced_executor.learnFromExecution(response, result);
+                        }
+                    }
+                    else
+                    {
+                        std::cout << "🚫 Execution cancelled by user." << std::endl;
+                    }
                 }
-            } else {
-                // Handle non-script responses
-                std::cout << "💬 AI Response: " << response.value("content", "No valid response") << std::endl;
-                context_manager.addToHistory(input, response.dump(), "text_response", true);
+                else if (response_type == "vision_task")
+                {
+                    // Handle vision task - first execute initial action if present
+                    if (response.contains("initial_action"))
+                    {
+                        std::string initial_cmd = response["initial_action"];
+                        std::cout << "🚀 Launching application: " << initial_cmd << std::endl;
+                        
+                        // Execute the launch command first
+                        json launch_task = {
+                            {"type", "powershell_script"},
+                            {"script", {initial_cmd}},
+                            {"explanation", "Launching required application"}
+                        };
+                        
+                        TaskPlan launch_plan = task_planner.planTask("Launch application", launch_task);
+                        ExecutionResult launch_result = advanced_executor.executeWithPlan(launch_plan);
+                        
+                        if (!launch_result.success)
+                        {
+                            std::cout << "❌ Failed to launch application. Aborting vision task." << std::endl;
+                            return;
+                        }
+                        
+                        // Wait for app to load
+                        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                    }
+                    
+                    // Now execute the vision task
+                    std::string objective = response.value("objective", input);
+                    handleVisionTask(objective);
+                }
+                else
+                {
+                    // Handle text response
+                    std::cout << "💬 AI Response: " << response.value("content", "No valid response") << std::endl;
+                    context_manager.addToHistory(input, response.dump(), "text_response", true);
+                }
             }
-            
-        } catch(const std::exception &e) {
+        }
+        catch (const std::exception &e)
+        {
             std::cerr << "❌ Error: " << e.what() << std::endl;
             context_manager.addToHistory(input, "", "error", false);
         }
     }
-    
-    void handleSpecialCommand(const std::string& command) {
-        if (command == ":voice") {
+
+    void handleSpecialCommand(const std::string &command)
+    {
+        if (command == ":voice")
+        {
             std::cout << "🎤 Starting voice input..." << std::endl;
             std::string audio_file = multimodal_handler.startVoiceRecording();
             std::cout << "Press Enter when done speaking..." << std::endl;
             std::cin.get();
             multimodal_handler.stopVoiceRecording();
-            
+
             MultiModalInput voice_input = multimodal_handler.processVoiceInput(audio_file);
             std::cout << "🎤 Transcribed: " << voice_input.content << std::endl;
             processUserInput(voice_input.content);
-            
-        } else if (command == ":screenshot") {
+        }
+        else if (command == ":screenshot")
+        {
             std::cout << "📸 Analyzing current screen..." << std::endl;
             MultiModalInput screen_input = multimodal_handler.processScreenCapture();
             std::string analysis = multimodal_handler.analyzeScreenshot();
             std::cout << "👁️ Screen Analysis: " << analysis << std::endl;
-            
-        } else if (command == ":history") {
+        }
+        else if (command == ":history")
+        {
             std::cout << "📜 Recent conversation history:" << std::endl;
             std::cout << context_manager.getRecentContext(5) << std::endl;
-              } else if (command.length() > 6 && command.substr(0, 6) == ":mode ") {
+        }
+        else if (command.length() > 6 && command.substr(0, 6) == ":mode ")
+        {
             std::string mode = command.substr(6);
-            if (mode == "safe") {
+            if (mode == "safe")
+            {
                 advanced_executor.setExecutionMode(ExecutionMode::SAFE);
                 std::cout << "🛡️ Execution mode set to SAFE" << std::endl;
-            } else if (mode == "interactive") {
+            }
+            else if (mode == "interactive")
+            {
                 advanced_executor.setExecutionMode(ExecutionMode::INTERACTIVE);
                 std::cout << "🤝 Execution mode set to INTERACTIVE" << std::endl;
-            } else if (mode == "autonomous") {
+            }
+            else if (mode == "autonomous")
+            {
                 advanced_executor.setExecutionMode(ExecutionMode::AUTONOMOUS);
                 std::cout << "🚀 Execution mode set to AUTONOMOUS" << std::endl;
             }
-            
-        } else if (command == ":quit") {
+        }
+        else if (command == ":quit")
+        {
             std::cout << "👋 Goodbye! Session saved." << std::endl;
             context_manager.saveSession();
             exit(0);
-        } else {
+        }
+        else
+        {
             std::cout << "❓ Unknown command: " << command << std::endl;
         }
     }
-    
-    void displayTaskPlan(const TaskPlan& plan) {
+
+    void displayTaskPlan(const TaskPlan &plan)
+    {
         std::cout << "📋 Task Plan: " << plan.objective << std::endl;
         std::cout << "🎯 Confidence: " << (plan.overall_confidence * 100) << "%" << std::endl;
         std::cout << "📝 Steps:" << std::endl;
-        for (size_t i = 0; i < plan.tasks.size(); i++) {
-            const auto& task = plan.tasks[i];
-            std::cout << "  " << (i+1) << ". " << task.description << std::endl;
-            for (const auto& cmd : task.commands) {
+        for (size_t i = 0; i < plan.tasks.size(); i++)
+        {
+            const auto &task = plan.tasks[i];
+            std::cout << "  " << (i + 1) << ". " << task.description << std::endl;
+            for (const auto &cmd : task.commands)
+            {
                 std::cout << "     → " << cmd << std::endl;
             }
         }
     }
-    
-    bool askForConfirmation(const json& response) {
+
+    bool askForConfirmation(const json &response)
+    {
         std::cout << "⚠️ Execution Plan:" << std::endl;
         std::cout << "📝 Description: " << response.value("explanation", "No description") << std::endl;
         std::cout << "🎯 Confidence: " << (response.value("confidence", 0.0) * 100) << "%" << std::endl;
-        
-        if (response.contains("script")) {
+
+        if (response.contains("script"))
+        {
             std::cout << "💻 Commands to execute:" << std::endl;
-            for (const auto& cmd : response["script"]) {
+            for (const auto &cmd : response["script"])
+            {
                 std::cout << "  → " << cmd.get<std::string>() << std::endl;
             }
         }
-        
+
         std::cout << "🤔 Do you want to proceed? (y/N): ";
         std::string confirmation;
         std::getline(std::cin, confirmation);
         return (confirmation == "y" || confirmation == "Y" || confirmation == "yes");
     }
-    
-    void displayExecutionResult(const ExecutionResult& result) {
-        if (result.success) {
+
+    void displayExecutionResult(const ExecutionResult &result)
+    {
+        if (result.success)
+        {
             std::cout << "✅ Execution successful!" << std::endl;
-            if (!result.output.empty()) {
+            if (!result.output.empty())
+            {
                 std::cout << "📤 Output: " << result.output << std::endl;
             }
-        } else {
+        }
+        else
+        {
             std::cout << "❌ Execution failed!" << std::endl;
             std::cout << "⚠️ Error: " << result.error_message << std::endl;
         }
         std::cout << "⏱️ Execution time: " << result.execution_time << "s" << std::endl;
-    }      void run() {
-        if (server_mode) {
+    }    bool isVisionTask(const std::string &input)
+    {
+        // Use AI to dynamically determine if this is a vision task
+        try
+        {
+            json intent = callIntentAI(api_key, input);
+
+            if (intent.contains("is_vision_task"))
+            {
+                bool is_vision = intent["is_vision_task"];
+                double confidence = intent.value("confidence", 0.5);
+
+                std::cout << "🤖 AI Intent Analysis: " << (is_vision ? "Vision Task" : "Regular Task")
+                          << " (confidence: " << (confidence * 100) << "%)" << std::endl;
+
+                return is_vision;
+            }
+        }
+        catch (const std::exception &e)
+        {
+            std::cout << "⚠️ AI intent analysis failed: " << e.what() << std::endl;
+        }
+
+        // If AI fails, default to false (use PowerShell)
+        return false;
+    }
+
+    void handleVisionTask(const std::string &input)
+    {
+        std::cout << "🎯 Detected vision task: " << input << std::endl;
+        std::cout << "👁️ Analyzing screen and planning execution..." << std::endl;
+
+        try
+        {
+            // Execute natural language task using vision
+            ExecutionResult result = advanced_executor.executeNaturalLanguageTask(input);
+
+            // Display detailed results
+            displayVisionTaskResult(result, input);
+
+            // Add to context
+            context_manager.addToHistory(input, result.output, "vision_task", result.success);
+        }
+        catch (const std::exception &e)
+        {
+            std::cout << "❌ Vision task failed: " << e.what() << std::endl;
+        }
+    }
+
+    void displayVisionTaskResult(const ExecutionResult &result, const std::string &original_task)
+    {
+        std::cout << "\n🎬 Vision Task Execution Summary" << std::endl;
+        std::cout << "📋 Task: " << original_task << std::endl;
+
+        if (result.success)
+        {
+            std::cout << "✅ Status: Completed Successfully" << std::endl;
+        }
+        else
+        {
+            std::cout << "❌ Status: Failed" << std::endl;
+        }
+
+        std::cout << "📝 Result: " << result.output << std::endl;
+        std::cout << "⏱️ Total Time: " << result.execution_time << "s" << std::endl;
+
+        if (result.metadata.contains("steps_executed"))
+        {
+            std::cout << "🔢 Steps Executed: " << result.metadata["steps_executed"] << std::endl;
+        }
+
+        if (result.metadata.contains("step_details"))
+        {
+            std::cout << "📊 Step Details:" << std::endl;
+            int step_num = 1;
+            for (const auto &step : result.metadata["step_details"])
+            {
+                std::cout << "  " << step_num << ". " << step.value("description", "Unknown step");
+                if (step.value("success", false))
+                {
+                    std::cout << " ✅";
+                }
+                else
+                {
+                    std::cout << " ❌";
+                    if (step.contains("error"))
+                    {
+                        std::cout << " (" << step["error"] << ")";
+                    }
+                }
+                std::cout << std::endl;
+                step_num++;
+            }
+        }
+
+        if (!result.success && !result.error_message.empty())
+        {
+            std::cout << "🚨 Error Details: " << result.error_message << std::endl;
+        }
+
+        std::cout << std::endl;
+    }
+    void run()
+    {
+        if (server_mode)
+        {
             runServerMode();
-        } else {
+        }
+        else
+        {
             runInteractiveMode();
         }
     }
-    
-    void runServerMode() {
+
+    void runServerMode()
+    {
         std::cout << "\n🌐 Starting HTTP Server Mode..." << std::endl;
-        
-        if (http_server.start()) {
+
+        if (http_server.start())
+        {
             std::cout << "✅ Server started successfully on port 8080" << std::endl;
             std::cout << "🌐 Frontend can connect at: http://localhost:8080" << std::endl;
             std::cout << "📋 Available endpoints:" << std::endl;
@@ -259,41 +469,52 @@ public:
             std::cout << "   POST /api/rollback - Rollback last action" << std::endl;
             std::cout << "   GET  /api/suggestions - Get suggestions" << std::endl;
             std::cout << "\n💡 Press Ctrl+C to stop the server" << std::endl;
-            
+
             // Keep server running
-            while (http_server.isRunning()) {
+            while (http_server.isRunning())
+            {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
-        } else {
+        }
+        else
+        {
             std::cerr << "❌ Failed to start HTTP server" << std::endl;
         }
     }
-    
-    void runInteractiveMode() {
-        while (true) {
+
+    void runInteractiveMode()
+    {
+        while (true)
+        {
             std::cout << "\n🤖 Enter your task (or ':quit' to exit): ";
             std::string user_input;
             std::getline(std::cin, user_input);
-            
-            if (user_input.empty()) continue;
-            
+
+            if (user_input.empty())
+                continue;
+
             // Check for common exit commands
-            if (user_input == "exit" || user_input == "quit" || user_input == "q") {
+            if (user_input == "exit" || user_input == "quit" || user_input == "q")
+            {
                 std::cout << "👋 Goodbye! Session saved." << std::endl;
                 context_manager.saveSession();
                 break;
             }
-            
+
             processUserInput(user_input);
         }
     }
 };
 
-int main() {
-    try {
+int main()
+{
+    try
+    {
         AdvancedAIAgent agent;
         agent.run();
-    } catch(const std::exception &e) {
+    }
+    catch (const std::exception &e)
+    {
         std::cerr << "❌ Fatal Error: " << e.what() << std::endl;
         return 1;
     }
