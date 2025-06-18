@@ -18,4 +18,7 @@ json callIntentAI(const std::string &api_key, const std::string &user_request);
 // Dynamic vision analysis - AI-driven element selection and action planning
 json callVisionAI(const std::string &api_key, const std::string &task, const std::string &screen_description, const std::vector<std::string> &available_elements);
 
+// Function to get plain text responses from the LLM, suitable for content generation
+std::string callLLMForTextGeneration(const std::string &api_key, const std::string &text_generation_prompt);
+
 #endif // AI_MODEL_H

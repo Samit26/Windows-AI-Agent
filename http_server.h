@@ -45,6 +45,8 @@ private:
     ContextManager* context_manager;
     TaskPlanner* task_planner;
     MultiModalHandler* multimodal_handler;
+    VisionProcessor* vision_processor_ptr = nullptr; // Added
+    AdvancedExecutor* advanced_executor_ptr = nullptr; // For clarity, ensure it's present, though 'executor' might be it
     std::string api_key;
     
     // HTTP handling
@@ -64,17 +66,21 @@ private:
     void handleImageInput(const json& request_data, HttpResponse& response);
     
     // Vision task handling
-    bool isVisionTask(const std::string& input);
-    json handleVisionTaskRequest(const std::string& input);
+    bool isVisionTask(const std::string& input); // This seems more like a helper for general task execution
+    json handleVisionTaskRequest(const std::string& input); // This seems more like a helper for general task execution
     
+    // New API Handlers for Vision
+    void handleApiVisionAnalyzeScreen(const httplib::Request &req, httplib::Response &res);
+    void handleApiVisionExecuteAction(const httplib::Request &req, httplib::Response &res);
+
 public:
     HttpServer(int port = 8080);
     ~HttpServer();
     
     // Configuration
-    void setComponents(AdvancedExecutor* exec, ContextManager* ctx, 
-                      TaskPlanner* planner, MultiModalHandler* modal, 
-                      const std::string& gemini_key);
+    void setComponents(AdvancedExecutor* adv_exec, ContextManager* ctx_mgr,
+                      TaskPlanner* planner, MultiModalHandler* mm_handler,
+                      VisionProcessor* vp, const std::string& key);
     
     // Server control
     bool start();

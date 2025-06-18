@@ -43,21 +43,22 @@ private:
     bool opencv_available;
 
     // Screen capture methods
-    std::string captureScreenshot();
-    std::string captureWindowScreenshot(HWND window); // Image processing methods
-    std::vector<UIElement> detectUIElements(const std::string &image_path);
-    std::string extractTextFromImage(const std::string &image_path);
-    std::vector<UIElement> findButtons(const std::string &image_path);
-    std::vector<UIElement> findTextFields(const std::string &image_path);
-    void addCommonWindowsElements(std::vector<UIElement> &elements);
+    std::string captureScreenshot(); // Retained
+    // std::string captureWindowScreenshot(HWND window); // Removed - unused
+    // Image processing methods
+    std::vector<UIElement> detectUIElements(const std::string &image_path); // Retained
+    std::string extractTextFromImage(const std::string &image_path); // Retained
+    // std::vector<UIElement> findButtons(const std::string &image_path); // Removed - unused
+    // std::vector<UIElement> findTextFields(const std::string &image_path); // Removed - unused
+    void addCommonWindowsElements(std::vector<UIElement> &elements); // Retained
 
     // Template matching
-    std::vector<UIElement> findTemplateMatches(const std::string &image_path,
-                                               const std::string &template_path,
-                                               double threshold = 0.8);
+    // std::vector<UIElement> findTemplateMatches(const std::string &image_path, // Removed - unused
+    //                                            const std::string &template_path,
+    //                                            double threshold = 0.8);
 
     // Windows API helpers
-    HWND getActiveWindow();
+    HWND getActiveWindow(); // Retained
     std::string getWindowTitle(HWND window);
     std::string getApplicationName(HWND window);
 
@@ -76,20 +77,20 @@ public:
     std::vector<UIElement> findElementsContaining(const std::string &text, const ScreenAnalysis &analysis);
 
     // Coordinate and interaction helpers
-    bool clickElement(const UIElement &element);
-    bool typeAtElement(const UIElement &element, const std::string &text);
-    bool scrollToElement(const UIElement &element);
+    bool clickElement(const UIElement &element); // Retained
+    bool typeAtElement(const UIElement &element, const std::string &text); // Retained
+    // bool scrollToElement(const UIElement &element); // Removed - unused
 
     // Screenshot utilities
-    std::string saveScreenshot(const std::string &filename = "");
-    bool compareScreenshots(const std::string &before, const std::string &after, double threshold = 0.95);
+    std::string saveScreenshot(const std::string &filename = ""); // Retained
+    // bool compareScreenshots(const std::string &before, const std::string &after, double threshold = 0.95); // Removed - unused
 
     // Description generation for Gemini
-    std::string generateScreenDescription(const ScreenAnalysis &analysis);
-    json createElementsJson(const std::vector<UIElement> &elements);
+    std::string generateScreenDescription(const ScreenAnalysis &analysis); // Retained
+    // json createElementsJson(const std::vector<UIElement> &elements); // Removed - unused
 
     // Configuration
-    void setTempDirectory(const std::string &path);
+    void setTempDirectory(const std::string &path); // Retained
     void enableOpenCV(bool enable);
     bool isOpenCVAvailable() const;
 };

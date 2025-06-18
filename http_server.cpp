@@ -8,6 +8,8 @@
 #include <ctime>
 #include <vector>
 #include <algorithm>
+#include "vision_processor.h" // Added for ScreenAnalysis, UIElement
+#include "httplib.h"          // Added for httplib::Request, httplib::Response
 
 // Always include winsock2.h before windows.h or any other socket headers
 #ifndef _WINSOCKAPI_
@@ -19,9 +21,10 @@
 #pragma comment(lib, "ws2_32.lib")
 
 HttpServer::HttpServer(int port) : port(port), running(false),
-                                   executor(nullptr), context_manager(nullptr), task_planner(nullptr), multimodal_handler(nullptr)
+                                   executor(nullptr), context_manager(nullptr),
+                                   task_planner(nullptr), multimodal_handler(nullptr),
+                                   vision_processor_ptr(nullptr), advanced_executor_ptr(nullptr)
 {
-
     // Initialize Winsock
     WSADATA wsaData;
     WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -33,15 +36,17 @@ HttpServer::~HttpServer()
     WSACleanup();
 }
 
-void HttpServer::setComponents(AdvancedExecutor *exec, ContextManager *ctx,
-                               TaskPlanner *planner, MultiModalHandler *modal,
-                               const std::string &gemini_key)
+void HttpServer::setComponents(AdvancedExecutor* adv_exec, ContextManager* ctx_mgr,
+                               TaskPlanner* tp_planner, MultiModalHandler* mm_handler,
+                               VisionProcessor* vp, const std::string& key)
 {
-    executor = exec;
-    context_manager = ctx;
-    task_planner = planner;
-    multimodal_handler = modal;
-    api_key = gemini_key;
+    executor = adv_exec; // Keep using the existing 'executor' member for AdvancedExecutor
+    advanced_executor_ptr = adv_exec; // Explicitly assign to the new pointer as well if needed, or just use 'executor'
+    context_manager = ctx_mgr;
+    task_planner = tp_planner;
+    multimodal_handler = mm_handler;
+    vision_processor_ptr = vp;
+    api_key = key;
 }
 
 bool HttpServer::start()
@@ -269,6 +274,35 @@ void HttpServer::handleRequest(const HttpRequest &request, HttpResponse &respons
         {
             handleImageInput(request_data, response);
         }
+        // New Vision Endpoints
+        else if (request.path == "/api/vision/analyzeScreen" && request.method == "POST") // POST as it might trigger actions
+        {
+            // For httplib, the parameters are directly passed to the handler
+            // This generic handleRequest might need adjustment if using httplib directly for routes
+            // For now, assuming the structure where handleRequest dispatches based on path
+            // If using httplib's server.Post, this function's role changes or these handlers are called directly.
+            // Let's assume these will be adapted to be called directly by httplib routes.
+            // So, the call would look like: handleApiVisionAnalyzeScreen(req, res);
+            // This function (handleRequest) might not be the one registering routes if httplib is used as typical.
+            // The prompt implies direct registration in start() or constructor.
+            // For now, this part is more conceptual for where the new path would be handled.
+             json empty_req_data_for_now; // analyzeScreen might not need a body
+             HttpResponse vision_res;
+             // This is a conceptual call, actual call will be via httplib::Request, httplib::Response
+             // handleApiVisionAnalyzeScreen(request, vision_res);
+             // response = vision_res; // Assign to outer response
+             response.status_code = 501; // Not Implemented Yet via this dispatcher
+             response.body = R"({"error": "Vision analyzeScreen not yet routed correctly in generic handler"})";
+
+        }
+        else if (request.path == "/api/vision/executeAction" && request.method == "POST")
+        {
+            HttpResponse vision_res;
+            // handleApiVisionExecuteAction(request, vision_res);
+            // response = vision_res;
+            response.status_code = 501; // Not Implemented Yet
+            response.body = R"({"error": "Vision executeAction not yet routed correctly in generic handler"})";
+        }
         else
         {
             response.status_code = 404;
@@ -432,6 +466,217 @@ std::string HttpServer::urlDecode(const std::string &str)
         }
     }
     return result;
+}
+
+
+// New Handler Implementations
+void HttpServer::handleApiVisionAnalyzeScreen(const httplib::Request &req, httplib::Response &res) {
+    // CORS headers are good practice, can be set globally in httplib or per route
+    res.set_header("Access-Control-Allow-Origin", "*");
+    res.set_header("Content-Type", "application/json");
+
+    if (!vision_processor_ptr) {
+        res.status = 503; // Service Unavailable
+        json error_json = {{"error", "VisionProcessor not initialized on server."}};
+        res.set_content(error_json.dump(2), "application/json");
+        return;
+    }
+
+    try {
+        ScreenAnalysis analysis = vision_processor_ptr->analyzeCurrentScreen();
+        json analysis_json;
+        analysis_json["screenshot_path"] = analysis.screenshot_path; // Path to screenshot
+        analysis_json["application_name"] = analysis.application_name;
+        analysis_json["window_title"] = analysis.window_title;
+        analysis_json["overall_description"] = analysis.overall_description;
+
+        json elements_json = json::array();
+        for (const auto& elem : analysis.elements) {
+            elements_json.push_back({
+                {"id", elem.id},
+                {"x", elem.x},
+                {"y", elem.y},
+                {"width", elem.width},
+                {"height", elem.height},
+                {"type", elem.type},
+                {"text", elem.text},
+                {"description", elem.description},
+                {"confidence", elem.confidence}
+            });
+        }
+        analysis_json["elements"] = elements_json;
+        analysis_json["metadata"] = analysis.metadata; // Contains timestamp, handle, resolution etc.
+
+        res.status = 200;
+        res.set_content(analysis_json.dump(2), "application/json");
+
+    } catch (const std::exception& e) {
+        res.status = 500; // Internal Server Error
+        json error_json = {{"error", "Failed to analyze screen: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    }
+}
+
+void HttpServer::handleApiVisionExecuteAction(const httplib::Request &req, httplib::Response &res) {
+    res.set_header("Access-Control-Allow-Origin", "*");
+    res.set_header("Content-Type", "application/json");
+
+    if (!executor) { // 'executor' is the AdvancedExecutor instance
+        res.status = 503; // Service Unavailable
+        json error_json = {{"error", "AdvancedExecutor not initialized on server."}};
+        res.set_content(error_json.dump(2), "application/json");
+        return;
+    }
+
+    try {
+        json request_json = json::parse(req.body);
+        std::string action_description = request_json.value("action_description", "");
+        // std::string task_context = request_json.value("task_context", ""); // Optional context
+
+        if (action_description.empty()) {
+            res.status = 400; // Bad Request
+            json error_json = {{"error", "Missing 'action_description' in request body."}};
+            res.set_content(error_json.dump(2), "application/json");
+            return;
+        }
+
+        // Using AdvancedExecutor's executeNaturalLanguageTask for vision tasks
+        ExecutionResult exec_result = executor->executeNaturalLanguageTask(action_description);
+
+        json response_json;
+        response_json["success"] = exec_result.success;
+        response_json["output"] = exec_result.output;
+        response_json["error_message"] = exec_result.error_message;
+        response_json["execution_time"] = exec_result.execution_time;
+        response_json["metadata"] = exec_result.metadata; // Contains step details for vision tasks
+
+        res.status = exec_result.success ? 200 : 500; // Use 500 if task failed, or adjust as needed
+        if (!exec_result.success && exec_result.error_message.empty()){
+             response_json["error_message"] = "Vision action failed with no specific error message.";
+        }
+
+        res.set_content(response_json.dump(2), "application/json");
+
+    } catch (const json::parse_error& e) {
+        res.status = 400; // Bad Request
+        json error_json = {{"error", "Invalid JSON in request body: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    } catch (const std::exception& e) {
+        res.status = 500; // Internal Server Error
+        json error_json = {{"error", "Failed to execute vision action: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    }
+}
+
+
+// New Handler Implementations
+void HttpServer::handleApiVisionAnalyzeScreen(const httplib::Request &req, httplib::Response &res) {
+    res.set_header("Access-Control-Allow-Origin", "*");
+    res.set_header("Access-Control-Allow_Methods", "POST, OPTIONS");
+    res.set_header("Access-Control-Allow_Headers", "Content-Type");
+
+    if (req.method == "OPTIONS") {
+        res.status = 204; // No Content
+        return;
+    }
+
+    res.set_header("Content-Type", "application/json");
+
+    if (!vision_processor_ptr) {
+        res.status = 503; // Service Unavailable
+        json error_json = {{"error", "VisionProcessor not initialized on server."}};
+        res.set_content(error_json.dump(2), "application/json");
+        return;
+    }
+
+    try {
+        ScreenAnalysis analysis = vision_processor_ptr->analyzeCurrentScreen();
+        json analysis_json;
+        analysis_json["screenshot_path"] = analysis.screenshot_path;
+        analysis_json["application_name"] = analysis.application_name;
+        analysis_json["window_title"] = analysis.window_title;
+        analysis_json["overall_description"] = analysis.overall_description;
+
+        json elements_json = json::array();
+        for (const auto& elem : analysis.elements) {
+            elements_json.push_back({
+                {"id", elem.id},
+                {"x", elem.x},
+                {"y", elem.y},
+                {"width", elem.width},
+                {"height", elem.height},
+                {"type", elem.type},
+                {"text", elem.text},
+                {"description", elem.description},
+                {"confidence", elem.confidence}
+            });
+        }
+        analysis_json["elements"] = elements_json;
+        analysis_json["metadata"] = analysis.metadata;
+
+        res.status = 200;
+        res.set_content(analysis_json.dump(2), "application/json");
+
+    } catch (const std::exception& e) {
+        res.status = 500; // Internal Server Error
+        json error_json = {{"error", "Failed to analyze screen: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    }
+}
+
+void HttpServer::handleApiVisionExecuteAction(const httplib::Request &req, httplib::Response &res) {
+    res.set_header("Access-Control-Allow-Origin", "*");
+    res.set_header("Access-Control-Allow_Methods", "POST, OPTIONS");
+    res.set_header("Access-Control-Allow_Headers", "Content-Type");
+
+    if (req.method == "OPTIONS") {
+        res.status = 204; // No Content
+        return;
+    }
+
+    res.set_header("Content-Type", "application/json");
+
+    if (!executor) { // Use the existing 'executor' which is the AdvancedExecutor
+        res.status = 503; // Service Unavailable
+        json error_json = {{"error", "AdvancedExecutor not initialized on server."}};
+        res.set_content(error_json.dump(2), "application/json");
+        return;
+    }
+
+    try {
+        json request_json = json::parse(req.body);
+        std::string action_description = request_json.value("action_description", "");
+        // std::string task_context = request_json.value("task_context", ""); // Could be used later
+
+        if (action_description.empty()) {
+            res.status = 400; // Bad Request
+            json error_json = {{"error", "Missing 'action_description' in request body."}};
+            res.set_content(error_json.dump(2), "application/json");
+            return;
+        }
+
+        // Use executeNaturalLanguageTask from AdvancedExecutor
+        ExecutionResult exec_result = executor->executeNaturalLanguageTask(action_description);
+
+        json response_json;
+        response_json["success"] = exec_result.success;
+        response_json["output"] = exec_result.output;
+        response_json["error_message"] = exec_result.error_message;
+        response_json["execution_time"] = exec_result.execution_time;
+        response_json["metadata"] = exec_result.metadata;
+
+        res.status = 200;
+        res.set_content(response_json.dump(2), "application/json");
+
+    } catch (const json::parse_error& e) {
+        res.status = 400; // Bad Request
+        json error_json = {{"error", "Invalid JSON in request body: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    } catch (const std::exception& e) {
+        res.status = 500; // Internal Server Error
+        json error_json = {{"error", "Failed to execute vision action: " + std::string(e.what())}};
+        res.set_content(error_json.dump(2), "application/json");
+    }
 }
 
 std::map<std::string, std::string> HttpServer::parseQueryString(const std::string &query)
