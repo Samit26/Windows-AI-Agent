@@ -62,6 +62,8 @@ private:
     std::string getWindowTitle(HWND window);
     std::string getApplicationName(HWND window);
 
+    ScreenAnalysis analyzeImageWithQwen(const std::string& image_path);
+
 public:
     VisionProcessor();
     ~VisionProcessor();

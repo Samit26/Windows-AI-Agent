@@ -304,10 +304,34 @@ public:
         }
         else if (command == ":screenshot")
         {
-            std::cout << "📸 Analyzing current screen..." << std::endl;
-            MultiModalInput screen_input = multimodal_handler.processScreenCapture();
-            std::string analysis = multimodal_handler.analyzeScreenshot();
-            std::cout << "👁️ Screen Analysis: " << analysis << std::endl;
+            std::cout << "📸 Analyzing current screen with Qwen..." << std::endl;
+            ScreenAnalysis analysis_result = multimodal_handler.analyzeCurrentScreen();
+
+            std::cout << "\n--- Qwen Screen Analysis ---" << std::endl;
+            std::cout << "📝 Description: " << analysis_result.overall_description << std::endl;
+
+            if (!analysis_result.screenshot_path.empty()) {
+                std::cout << "🖼️ Screenshot saved at: " << analysis_result.screenshot_path << std::endl;
+            }
+
+            std::cout << "\n--- Detected UI Elements (" << analysis_result.elements.size() << ") ---" << std::endl;
+            if (analysis_result.elements.empty()) {
+                std::cout << "No UI elements were specifically identified by Qwen or extracted." << std::endl;
+            } else {
+                for (size_t i = 0; i < analysis_result.elements.size(); ++i) {
+                    const auto& el = analysis_result.elements[i];
+                    std::cout << "  Element " << i + 1 << ":" << std::endl;
+                    std::cout << "    Type: " << el.type << std::endl;
+                    std::cout << "    Text: \"" << el.text << "\"" << std::endl;
+                    std::cout << "    BBox: [x:" << el.x << ", y:" << el.y << ", w:" << el.width << ", h:" << el.height << "]" << std::endl;
+                    std::cout << "    Confidence: " << el.confidence << std::endl;
+                    if (i >= 4 && analysis_result.elements.size() > 5) { // Print max 5 elements if many
+                        std::cout << "  ... and " << (analysis_result.elements.size() - (i + 1)) << " more elements." << std::endl;
+                        break;
+                    }
+                }
+            }
+            std::cout << "---------------------------------" << std::endl;
         }
         // else if (command == ":history") // Removed
         // {
