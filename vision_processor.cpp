@@ -1,4 +1,3 @@
-#include "vision_processor.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -7,10 +6,84 @@
 #include <iomanip>
 #include <algorithm>
 #include <cmath>
-#include <psapi.h>
+#include <psapi.h> // Windows API
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <curl/curl.h> // Added for network requests
+#include <cstdlib>     // For std::getenv
+
+#include "vision_processor.h" // Project-specific header
+
+namespace { // Anonymous namespace for utility functions
+    std::string base64_encode(const std::string& file_path) {
+        std::ifstream image_file(file_path, std::ios::binary);
+        if (!image_file.is_open()) {
+            std::cerr << "Error opening image file for base64 encoding: " << file_path << std::endl;
+            return "";
+        }
+        std::ostringstream os;
+        os << image_file.rdbuf();
+        std::string file_content = os.str();
+
+        const std::string base64_chars =
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    "abcdefghijklmnopqrstuvwxyz"
+                    "0123456789+/";
+
+        std::string ret;
+        int i = 0;
+        int j = 0;
+        unsigned char char_array_3[3];
+        unsigned char char_array_4[4];
+
+        for (char const& c : file_content) {
+            char_array_3[i++] = c;
+            if (i == 3) {
+                char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+                char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+                char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+                char_array_4[3] = char_array_3[2] & 0x3f;
+
+                for (i = 0; (i < 4); i++)
+                    ret += base64_chars[char_array_4[i]];
+                i = 0;
+            }
+        }
+
+        if (i) {
+            for (j = i; j < 3; j++)
+                char_array_3[j] = '\0'; // Use '\0' for padding
+
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            // char_array_4[3] should not be assigned if char_array_3[2] is padding.
+            // The original code had char_array_4[3] = char_array_3[2] & 0x3f; which might be problematic with padding.
+            // Let's adhere to the provided code for now, but this is a common spot for base64 bugs.
+
+            for (j = 0; (j < i + 1); j++)
+                ret += base64_chars[char_array_4[j]];
+
+            while ((i++ < 3))
+                ret += '=';
+        }
+        return ret;
+    }
+
+    // libcurl write callback function
+    size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* s) {
+        size_t newLength = size * nmemb;
+        try {
+            s->append((char*)contents, newLength);
+        } catch (std::bad_alloc& e) {
+            // Handle memory problem
+            std::cerr << "Failed to allocate memory in WriteCallback: " << e.what() << std::endl;
+            return 0;
+        }
+        return newLength;
+    }
+} // end anonymous namespace
 
 VisionProcessor::VisionProcessor() : temp_directory("temp/vision"), opencv_available(true)
 {
@@ -192,10 +265,14 @@ ScreenAnalysis VisionProcessor::analyzeCurrentScreen()
     analysis.application_name = getApplicationName(activeWindow);
 
     // Detect UI elements
-    analysis.elements = detectUIElements(analysis.screenshot_path);
-
+    // analysis.elements = detectUIElements(analysis.screenshot_path); // Removed
     // Generate overall description
-    analysis.overall_description = generateScreenDescription(analysis);
+    // analysis.overall_description = generateScreenDescription(analysis); // Removed
+
+    // Call Qwen analysis
+    ScreenAnalysis qwen_analysis = analyzeImageWithQwen(analysis.screenshot_path);
+    analysis.overall_description = qwen_analysis.overall_description;
+    analysis.elements = qwen_analysis.elements; // If Qwen provides elements
 
     // Add metadata
     analysis.metadata = {
@@ -209,48 +286,10 @@ ScreenAnalysis VisionProcessor::analyzeCurrentScreen()
 
 std::vector<UIElement> VisionProcessor::detectUIElements(const std::string &image_path)
 {
-    std::vector<UIElement> elements;
-
-    // TODO: Implement advanced UI element detection using OpenCV (e.g., template matching, feature detection, or an ML model).
-    // The current generic contour detection was removed as it's not specific enough for UI elements and can be noisy.
-    // The function now primarily relies on addCommonWindowsElements or future, more targeted detection methods.
-    try
-    {
-        if (opencv_available)
-        {
-            cv::Mat image = cv::imread(image_path);
-            if (image.empty())
-            {
-                std::cerr << "Could not load image for UI element detection: " << image_path << std::endl;
-                // Fall through to addCommonWindowsElements
-            }
-            else
-            {
-                // Placeholder for where more advanced OpenCV detection would go.
-                // For example, if you had templates for common icons:
-                // std::vector<UIElement> found_templates = findTemplateMatches(image_path, "path_to_template.png");
-                // elements.insert(elements.end(), found_templates.begin(), found_templates.end());
-                std::cout << "ℹ️ detectUIElements: OpenCV is available, but no specific advanced detection is implemented yet. Image loaded, path: " << image_path << std::endl;
-            }
-        }
-        else
-        {
-            std::cout << "ℹ️ detectUIElements: OpenCV not available. Skipping image-based detection." << std::endl;
-        }
-    }
-    catch (const cv::Exception &e) // Catch specific OpenCV exceptions
-    {
-        std::cerr << "❌ OpenCV exception in detectUIElements: " << e.what() << std::endl;
-    }
-    catch (const std::exception &e) // Catch other standard exceptions
-    {
-        std::cerr << "❌ Standard exception in detectUIElements: " << e.what() << std::endl;
-    }
-
-    // Add common Windows UI elements as a baseline or fallback.
-    addCommonWindowsElements(elements);
-
-    return elements;
+    std::cout << "INFO: VisionProcessor::detectUIElements - UI element detection is now primarily handled by the Qwen model via analyzeImageWithQwen." << std::endl;
+    // The image_path parameter is intentionally unused now.
+    // (void)image_path; // Optional: explicitly mark as unused if compiler warnings are aggressive.
+    return std::vector<UIElement>();
 }
 
 void VisionProcessor::addCommonWindowsElements(std::vector<UIElement> &elements)
@@ -297,52 +336,10 @@ void VisionProcessor::addCommonWindowsElements(std::vector<UIElement> &elements)
 
 std::string VisionProcessor::extractTextFromImage(const std::string &image_path)
 {
-    // TODO: Placeholder Implementation: Implement robust OCR using a library like Tesseract.
-    // The current version is a basic simulation and does not perform actual OCR.
-    std::string extracted_text = "OCR not implemented.";
-
-    if (opencv_available)
-    {
-        try
-        {
-            cv::Mat image = cv::imread(image_path, cv::IMREAD_GRAYSCALE);
-            if (image.empty())
-            {
-                std::cerr << "❌ Could not load image for OCR: " << image_path << std::endl;
-                return "OCR Error: Could not load image.";
-            }
-
-            // The morphological operations below are NOT OCR. They were a very basic simulation.
-            // Commenting them out as per the plan to remove non-functional "trash code".
-            /*
-            cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-            cv::Mat opened;
-            cv::morphologyEx(image, opened, cv::MORPH_OPEN, kernel);
-
-            std::vector<std::vector<cv::Point>> contours;
-            cv::findContours(opened, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-            extracted_text = "Simulated text regions detected: " + std::to_string(contours.size());
-            */
-            std::cout << "ℹ️ extractTextFromImage: OpenCV available, image loaded. Actual OCR needs implementation (e.g., Tesseract)." << std::endl;
-        }
-        catch (const cv::Exception &e)
-        {
-            std::cerr << "❌ OpenCV exception in extractTextFromImage: " << e.what() << std::endl;
-            extracted_text = "OCR Error: OpenCV exception.";
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "❌ Standard exception in extractTextFromImage: " << e.what() << std::endl;
-            extracted_text = "OCR Error: Standard exception.";
-        }
-    }
-    else
-    {
-        std::cout << "ℹ️ extractTextFromImage: OpenCV not available. Cannot perform even simulated OCR." << std::endl;
-        extracted_text = "OCR Error: OpenCV not available.";
-    }
-
-    return extracted_text; // Returns "OCR not implemented." or an error string.
+    std::cout << "INFO: VisionProcessor::extractTextFromImage - Text extraction is now primarily handled by the Qwen model via analyzeImageWithQwen." << std::endl;
+    // The image_path parameter is intentionally unused now.
+    // (void)image_path; // Optional: explicitly mark as unused
+    return "Text extraction is now primarily handled by the Qwen model.";
 }
 
 UIElement VisionProcessor::findElementByText(const std::string &text, const ScreenAnalysis &analysis)
@@ -608,3 +605,245 @@ std::vector<UIElement> VisionProcessor::findElementsContaining(const std::string
 // Removed scrollToElement - unused
 // Removed compareScreenshots - unused
 // Removed createElementsJson - unused
+
+ScreenAnalysis VisionProcessor::analyzeImageWithQwen(const std::string& image_path) {
+    ScreenAnalysis analysis;
+    analysis.overall_description = "Failed to analyze image with Qwen."; // Default error message
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    // Get API Key from environment variable
+    const char* api_key_env = std::getenv("OPENROUTER_API_KEY");
+    if (!api_key_env) {
+        std::cerr << "Error: OPENROUTER_API_KEY environment variable not set." << std::endl;
+        analysis.overall_description = "Error: OPENROUTER_API_KEY not set.";
+        return analysis;
+    }
+    std::string api_key = api_key_env;
+
+    std::string base64_image = base64_encode(image_path);
+    if (base64_image.empty()) {
+        analysis.overall_description = "Error: Failed to encode image to base64.";
+        return analysis;
+    }
+
+    // Determine image type from path (simple check)
+    std::string image_type = "image/png"; // Default
+    if (image_path.size() > 4) {
+        std::string ext = image_path.substr(image_path.size() - 4);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower); // Convert extension to lowercase
+        if (ext == ".jpg" || ext == "jpeg") image_type = "image/jpeg";
+        else if (ext == ".bmp") image_type = "image/bmp";
+        // Add more types if necessary, e.g., gif, webp
+    }
+
+    std::string image_data_url = "data:" + image_type + ";base64," + base64_image;
+
+    curl_global_init(CURL_GLOBAL_ALL); // Should ideally be called once per program
+    curl = curl_easy_init();
+
+    if (curl) {
+        std::string url = "https://openrouter.ai/api/v1/chat/completions";
+
+        // Construct JSON payload
+        json payload = {
+            {"model", "qwen/qwen2.5-vl-32b-instruct:free"}, // Corrected model name
+            {"messages", json::array({
+                {
+                    {"role", "user"},
+                    {"content", json::array({
+                        {{"type", "text"}, {"text", R"(Describe this image.
+In addition, identify all significant UI elements visible in the image, such as buttons, input fields, text areas, labels, and icons.
+For each element, provide its type (e.g., "button", "input_field", "text", "icon"), the text it contains (if any), and its bounding box coordinates.
+The bounding box should be an array of four integers: [x_min, y_min, x_max, y_max], representing the pixel coordinates of the top-left and bottom-right corners of the element.
+Please provide this list of UI elements as a JSON array string within your response, formatted like this:
+ELEMENTS_JSON_START
+[
+  {"type": "button", "text": "Login", "bbox": [100, 200, 180, 230]},
+  {"type": "input_field", "text": "", "bbox": [100, 150, 300, 180]},
+  {"type": "icon", "text": "settings", "bbox": [10, 10, 30, 30]}
+]
+ELEMENTS_JSON_END
+If no specific UI elements are identifiable, provide an empty array:
+ELEMENTS_JSON_START
+[]
+ELEMENTS_JSON_END)"}},
+                        {{"type": "image_url"}, {"image_url", {{"url", image_data_url}}}}
+                    })}
+                }
+            })},
+            {"max_tokens", 1024} // Optional: limit response size
+        };
+        std::string json_payload_str = payload.dump();
+
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        std::string auth_header = "Authorization: Bearer " + api_key;
+        headers = curl_slist_append(headers, auth_header.c_str());
+        // headers = curl_slist_append(headers, "HTTP-Referer: your-app-url"); // Optional: Recommended by OpenRouter
+        // headers = curl_slist_append(headers, "X-Title: Your App Name"); // Optional: Recommended by OpenRouter
+
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload_str.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 30000L); // 30 seconds
+        // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Enable for debugging cURL verbosity
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK) {
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            analysis.overall_description = std::string("Qwen API call failed: ") + curl_easy_strerror(res);
+        } else {
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            std::cout << "Qwen API HTTP Response Code: " << http_code << std::endl;
+            // std::cout << "Qwen API Response: " << readBuffer << std::endl; // For debugging
+
+            if (http_code == 200) {
+                try {
+                    json response_json = json::parse(readBuffer);
+                    if (response_json.contains("choices") && response_json["choices"].is_array() && !response_json["choices"].empty()) {
+                        const auto& first_choice = response_json["choices"][0];
+                        if (first_choice.contains("message") && first_choice["message"].contains("content")) {
+                            // Qwen-VL models typically return content as a string directly
+                            const auto& content = first_choice["message"]["content"];
+                            std::string full_response_text;
+
+                            if (content.is_string()) {
+                                full_response_text = content.get<std::string>();
+                            }
+                            // Handling for older/different Qwen models that might return content as an array
+                            else if (content.is_array() && !content.empty() && content[0].is_object() && content[0].contains("text")) {
+                                full_response_text = content[0]["text"].get<std::string>();
+                            } else {
+                                analysis.overall_description = "Qwen response format error: Could not extract text from content.";
+                                std::cerr << "Qwen response format error: 'content' is not a direct string or an array with text." << std::endl;
+                                std::cerr << "Content received: " << content.dump(2) << std::endl;
+                                // Early exit or skip UI element parsing if content structure is wrong
+                            }
+
+                            if (!full_response_text.empty()) {
+                                const std::string elements_json_start_marker = "ELEMENTS_JSON_START";
+                                const std::string elements_json_end_marker = "ELEMENTS_JSON_END";
+
+                                size_t json_block_start_pos = full_response_text.find(elements_json_start_marker);
+                                size_t json_block_end_pos = full_response_text.find(elements_json_end_marker);
+
+                                if (json_block_start_pos != std::string::npos && json_block_end_pos != std::string::npos && json_block_start_pos < json_block_end_pos) {
+                                    analysis.overall_description = full_response_text.substr(0, json_block_start_pos);
+                                    // Trim whitespace (simple trim for trailing newlines/spaces before marker)
+                                    size_t last_char = analysis.overall_description.find_last_not_of(" \n\r\t");
+                                    if (std::string::npos != last_char) {
+                                        analysis.overall_description.erase(last_char + 1);
+                                    }
+
+                                    size_t actual_json_start = json_block_start_pos + elements_json_start_marker.length();
+                                    std::string json_str_block = full_response_text.substr(actual_json_start, json_block_end_pos - actual_json_start);
+
+                                    try {
+                                        json parsed_elements_json = json::parse(json_str_block);
+                                        if (parsed_elements_json.is_array()) {
+                                            for (const auto& elem_item : parsed_elements_json) {
+                                                UIElement ui_el;
+                                                ui_el.type = elem_item.value("type", "unknown");
+                                                ui_el.text = elem_item.value("text", "");
+                                                // Description for individual elements could be added if model provides it
+                                                // ui_el.description = elem_item.value("description", "");
+
+                                                if (elem_item.contains("bbox") && elem_item["bbox"].is_array() && elem_item["bbox"].size() == 4) {
+                                                    const auto& bbox_arr = elem_item["bbox"];
+                                                    try {
+                                                        int x_min = bbox_arr[0].get<int>();
+                                                        int y_min = bbox_arr[1].get<int>();
+                                                        int x_max = bbox_arr[2].get<int>();
+                                                        int y_max = bbox_arr[3].get<int>();
+
+                                                        ui_el.x = x_min;
+                                                        ui_el.y = y_min;
+                                                        ui_el.width = x_max - x_min;
+                                                        ui_el.height = y_max - y_min;
+                                                        ui_el.confidence = 0.9; // Default confidence for Qwen identified elements
+
+                                                        if (ui_el.width < 0) ui_el.width = 0;
+                                                        if (ui_el.height < 0) ui_el.height = 0;
+
+                                                        analysis.elements.push_back(ui_el);
+                                                    } catch (const json::type_error& te) {
+                                                        std::cerr << "Error parsing bbox array element: " << te.what()
+                                                                  << " for element: " << elem_item.dump(2) << std::endl;
+                                                    }
+                                                } else {
+                                                    std::cerr << "Warning: UI element missing valid bbox: " << elem_item.dump(2) << std::endl;
+                                                }
+                                            }
+                                        } else {
+                                             std::cerr << "Error: ELEMENTS_JSON_START/END block found, but content is not a JSON array. Content: " << json_str_block << std::endl;
+                                             // Fallback: use the text before the block as description.
+                                             // analysis.overall_description is already set to this.
+                                        }
+                                    } catch (const json::parse_error& e) {
+                                        std::cerr << "Error parsing UI elements JSON block: " << e.what() << ". Block content: " << json_str_block << std::endl;
+                                        // Fallback: use the text before the block as description.
+                                        // analysis.overall_description is already set to this part.
+                                        // If we prefer the full text in this case:
+                                        // analysis.overall_description = full_response_text;
+                                    }
+                                } else {
+                                    // Markers not found, or in wrong order, treat the whole response as description
+                                    analysis.overall_description = full_response_text;
+                                }
+                            } else if (analysis.overall_description.empty()) {
+                                // This case means full_response_text was empty and overall_description wasn't set by an error message already.
+                                analysis.overall_description = "Qwen response format error: Content was empty or in unexpected format.";
+                                std::cerr << "Qwen response format error: Content was empty or in unexpected format after checking string/array." << std::endl;
+                            }
+                            // If full_response_text is empty but analysis.overall_description was set by "Could not extract text from content", it will retain that error message.
+
+                        } else {
+                            analysis.overall_description = "Qwen response format error: 'message' or 'content' field missing.";
+                            std::cerr << "Qwen response format error: 'message' or 'content' field missing in choice." << std::endl;
+                        }
+                    } else {
+                        analysis.overall_description = "Qwen response format error: 'choices' array missing or empty.";
+                        std::cerr << "Qwen response format error: 'choices' array missing or empty in response." << std::endl;
+                        if(response_json.contains("error")) {
+                            std::cerr << "Qwen API Error: " << response_json["error"].dump(2) << std::endl;
+                            if (response_json["error"].contains("message")) {
+                                analysis.overall_description = "Qwen API Error: " + response_json["error"]["message"].get<std::string>();
+                            } else {
+                                analysis.overall_description = "Qwen API Error: Unknown error structure.";
+                            }
+                        }
+                    }
+                } catch (const json::parse_error& e) {
+                    std::cerr << "JSON parsing error: " << e.what() << std::endl;
+                    analysis.overall_description = "Failed to parse Qwen API response.";
+                }
+            } else {
+                std::cerr << "Qwen API returned HTTP " << http_code << std::endl;
+                std::cerr << "Response: " << readBuffer << std::endl;
+                analysis.overall_description = "Qwen API Error: HTTP " + std::to_string(http_code);
+                 try {
+                    json error_json = json::parse(readBuffer);
+                    if(error_json.contains("error") && error_json["error"].contains("message")) {
+                        analysis.overall_description += ": " + error_json["error"]["message"].get<std::string>();
+                    }
+                } catch (const json::parse_error& e) {
+                    // Ignore if parsing error message fails, keep the HTTP code message
+                }
+            }
+        }
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    } else {
+        std::cerr << "curl_easy_init() failed." << std::endl;
+        analysis.overall_description = "Failed to initialize cURL for Qwen API.";
+    }
+    curl_global_cleanup(); // Should ideally be called once per program
+    return analysis;
+}
