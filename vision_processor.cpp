@@ -44,7 +44,8 @@ std::string VisionProcessor::captureScreenshot()
     int width = GetSystemMetrics(SM_CXSCREEN);
     int height = GetSystemMetrics(SM_CYSCREEN);
 
-    if (opencv_available) {
+    if (opencv_available)
+    {
         HDC hScreenDC = GetDC(NULL);
         HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
         HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, width, height);
@@ -69,15 +70,21 @@ std::string VisionProcessor::captureScreenshot()
 
         GetDIBits(hScreenDC, hBitmap, 0, (UINT)height, mat.data, (BITMAPINFO *)&bi, DIB_RGB_COLORS);
 
-        try {
-            if (cv::imwrite(filename, mat)) {
+        try
+        {
+            if (cv::imwrite(filename, mat))
+            {
                 std::cout << "📸 Screenshot saved as PNG: " << filename << std::endl;
-            } else {
+            }
+            else
+            {
                 std::cerr << "❌ Failed to save screenshot as PNG using OpenCV: " << filename << std::endl;
                 // Potentially fallback to BMP if PNG fails, or just return empty
                 filename = "";
             }
-        } catch (const cv::Exception& ex) {
+        }
+        catch (const cv::Exception &ex)
+        {
             std::cerr << "❌ OpenCV exception when saving PNG: " << ex.what() << std::endl;
             filename = "";
         }
@@ -88,8 +95,9 @@ std::string VisionProcessor::captureScreenshot()
         ReleaseDC(NULL, hScreenDC);
 
         return filename;
-
-    } else {
+    }
+    else
+    {
         // Fallback to BMP saving if OpenCV is not available
         // This is a basic GDI capture.
         std::stringstream ss_bmp_filename;
@@ -121,20 +129,28 @@ std::string VisionProcessor::captureScreenshot()
 
         DWORD dwBmpSize = ((width * bi.biBitCount + 31) / 32) * 4 * height;
         HANDLE hDIB = GlobalAlloc(GHND, dwBmpSize);
-        if (!hDIB) {
-             std::cerr << "❌ GlobalAlloc failed for BMP DIB" << std::endl;
-             DeleteDC(hMemoryDC); ReleaseDC(NULL, hScreenDC); return "";
+        if (!hDIB)
+        {
+            std::cerr << "❌ GlobalAlloc failed for BMP DIB" << std::endl;
+            DeleteDC(hMemoryDC);
+            ReleaseDC(NULL, hScreenDC);
+            return "";
         }
         char *lpbitmap = (char *)GlobalLock(hDIB);
-        if (!lpbitmap) {
+        if (!lpbitmap)
+        {
             std::cerr << "❌ GlobalLock failed for BMP DIB" << std::endl;
-            GlobalFree(hDIB); DeleteDC(hMemoryDC); ReleaseDC(NULL, hScreenDC); return "";
+            GlobalFree(hDIB);
+            DeleteDC(hMemoryDC);
+            ReleaseDC(NULL, hScreenDC);
+            return "";
         }
 
         GetDIBits(hScreenDC, hBitmap, 0, (UINT)height, lpbitmap, (BITMAPINFO *)&bi, DIB_RGB_COLORS);
 
         std::ofstream file(filename, std::ios::binary);
-        if (file.is_open()) {
+        if (file.is_open())
+        {
             DWORD dwSizeofDIB = dwBmpSize + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
             bmfHeader.bfOffBits = (DWORD)sizeof(BITMAPFILEHEADER) + (DWORD)sizeof(BITMAPINFOHEADER);
             bmfHeader.bfSize = dwSizeofDIB;
@@ -145,7 +161,9 @@ std::string VisionProcessor::captureScreenshot()
             file.write(lpbitmap, dwBmpSize);
             file.close();
             std::cout << "📸 Screenshot saved as BMP: " << filename << std::endl;
-        } else {
+        }
+        else
+        {
             std::cerr << "❌ Failed to open file to save BMP: " << filename << std::endl;
             filename = "";
         }
@@ -198,7 +216,8 @@ std::vector<UIElement> VisionProcessor::detectUIElements(const std::string &imag
     // The function now primarily relies on addCommonWindowsElements or future, more targeted detection methods.
     try
     {
-        if (opencv_available) {
+        if (opencv_available)
+        {
             cv::Mat image = cv::imread(image_path);
             if (image.empty())
             {
@@ -213,7 +232,9 @@ std::vector<UIElement> VisionProcessor::detectUIElements(const std::string &imag
                 // elements.insert(elements.end(), found_templates.begin(), found_templates.end());
                 std::cout << "ℹ️ detectUIElements: OpenCV is available, but no specific advanced detection is implemented yet. Image loaded, path: " << image_path << std::endl;
             }
-        } else {
+        }
+        else
+        {
             std::cout << "ℹ️ detectUIElements: OpenCV not available. Skipping image-based detection." << std::endl;
         }
     }
@@ -280,7 +301,8 @@ std::string VisionProcessor::extractTextFromImage(const std::string &image_path)
     // The current version is a basic simulation and does not perform actual OCR.
     std::string extracted_text = "OCR not implemented.";
 
-    if (opencv_available) {
+    if (opencv_available)
+    {
         try
         {
             cv::Mat image = cv::imread(image_path, cv::IMREAD_GRAYSCALE);
@@ -302,7 +324,6 @@ std::string VisionProcessor::extractTextFromImage(const std::string &image_path)
             extracted_text = "Simulated text regions detected: " + std::to_string(contours.size());
             */
             std::cout << "ℹ️ extractTextFromImage: OpenCV available, image loaded. Actual OCR needs implementation (e.g., Tesseract)." << std::endl;
-
         }
         catch (const cv::Exception &e)
         {
@@ -314,7 +335,9 @@ std::string VisionProcessor::extractTextFromImage(const std::string &image_path)
             std::cerr << "❌ Standard exception in extractTextFromImage: " << e.what() << std::endl;
             extracted_text = "OCR Error: Standard exception.";
         }
-    } else {
+    }
+    else
+    {
         std::cout << "ℹ️ extractTextFromImage: OpenCV not available. Cannot perform even simulated OCR." << std::endl;
         extracted_text = "OCR Error: OpenCV not available.";
     }
@@ -393,12 +416,11 @@ bool VisionProcessor::typeAtElement(const UIElement &element, const std::string 
 
     Sleep(200); // Wait for focus
 
-    // TODO: Future Enhancement: Consider clipboard operations (copy-paste) for typing very large texts for performance and reliability.
-    // Type the text
+    // TODO: Future Enhancement: Consider clipboard operations (copy-paste) for typing very large texts for performance and reliability.    // Type the text
     for (char c : text)
     {
-        if (c == '
-') {
+        if (c == '\n')
+        {
             // Simulate Enter key press
             INPUT enter_input[2] = {0};
             enter_input[0].type = INPUT_KEYBOARD;
@@ -407,22 +429,25 @@ bool VisionProcessor::typeAtElement(const UIElement &element, const std::string 
             enter_input[1].ki.wVk = VK_RETURN;
             enter_input[1].ki.dwFlags = KEYEVENTF_KEYUP;
             SendInput(2, enter_input, sizeof(INPUT));
-        } else if (c == '') {
-            // Typically, LF (
-) is the one that matters. CR () might be part of CRLF (
-) sequences.
-            // If
- is already handled as Enter, CR can often be skipped or also treated as Enter if needed by a specific application.
+        }
+        else if (c == '\r')
+        {
+            // Typically, LF (\n) is the one that matters. CR (\r) might be part of CRLF (\r\n) sequences.
+            // If \n is already handled as Enter, CR can often be skipped or also treated as Enter if needed by a specific application.
             // For simplicity here, we'll skip CR if we are already handling LF.
             continue;
-        } else {
+        }
+        else
+        {
             SHORT vk = VkKeyScanA(c);
-            if (vk != -1) {
+            if (vk != -1)
+            {
                 INPUT input[4] = {0}; // Max 4 inputs: ShiftDown, KeyDown, KeyUp, ShiftUp
                 int input_count = 0;
 
                 // Handle Shift key for uppercase or shifted symbols
-                if (HIWORD(vk) & 1) { // Check if Shift key is required
+                if (HIWORD(vk) & 1)
+                { // Check if Shift key is required
                     input[input_count].type = INPUT_KEYBOARD;
                     input[input_count].ki.wVk = VK_SHIFT;
                     input[input_count].ki.dwFlags = 0; // Key down
@@ -433,7 +458,7 @@ bool VisionProcessor::typeAtElement(const UIElement &element, const std::string 
                 // Key down
                 input[input_count].type = INPUT_KEYBOARD;
                 input[input_count].ki.wVk = LOBYTE(vk); // Use only the low byte for the key code
-                input[input_count].ki.dwFlags = 0; // Key down
+                input[input_count].ki.dwFlags = 0;      // Key down
                 input_count++;
 
                 // Key up
@@ -442,14 +467,17 @@ bool VisionProcessor::typeAtElement(const UIElement &element, const std::string 
                 input[input_count].ki.dwFlags = KEYEVENTF_KEYUP;
                 input_count++;
 
-                if (HIWORD(vk) & 1) { // Release Shift key if it was pressed
+                if (HIWORD(vk) & 1)
+                { // Release Shift key if it was pressed
                     input[input_count].type = INPUT_KEYBOARD;
                     input[input_count].ki.wVk = VK_SHIFT;
                     input[input_count].ki.dwFlags = KEYEVENTF_KEYUP;
                     input_count++;
                 }
                 SendInput(input_count, input, sizeof(INPUT));
-            } else {
+            }
+            else
+            {
                 // Character cannot be typed with VkKeyScanA (e.g., some complex Unicode not in current layout)
                 std::cerr << "⚠️ Warning in typeAtElement: Character '" << c << "' (ASCII: " << static_cast<int>(c)
                           << ") cannot be directly typed using VkKeyScanA. It might be skipped or require alternative input methods." << std::endl;

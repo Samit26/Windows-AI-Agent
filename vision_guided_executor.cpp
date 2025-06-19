@@ -144,16 +144,16 @@ VisionTaskExecution VisionGuidedExecutor::executeVisionTask(const std::string &t
                                  std::to_string(execution.steps.size()) + " steps";
     }
 
-    std::cout << "📊 Task execution completed in " << execution.total_time << " seconds" << std::endl;    return execution;
+    std::cout << "📊 Task execution completed in " << execution.total_time << " seconds" << std::endl;
+    return execution;
 }
-
 
 // Helper function to create VisionAction from JSON
 // Note: parseActionFromResponse was removed as callVisionAIModel now returns direct JSON or a fallback.
-VisionAction VisionGuidedExecutor::createActionFromJson(const json& actionJson)
+VisionAction VisionGuidedExecutor::createActionFromJson(const json &actionJson)
 {
     VisionAction action;
-    
+
     std::string action_type = actionJson.value("action_type", "wait");
     if (action_type == "click")
         action.type = VisionActionType::CLICK;
@@ -167,17 +167,17 @@ VisionAction VisionGuidedExecutor::createActionFromJson(const json& actionJson)
         action.type = VisionActionType::COMPLETE;
     else
         action.type = VisionActionType::WAIT;
-    
+
     action.target_description = actionJson.value("target_description", "");
     action.value = actionJson.value("value", "");
     action.explanation = actionJson.value("explanation", "AI-generated action");
     action.confidence = actionJson.value("confidence", 0.5);
-    
+
     if (action.type == VisionActionType::WAIT)
     {
         action.wait_time = std::stoi(action.value.empty() ? "1000" : action.value);
     }
-    
+
     return action;
 }
 
@@ -186,7 +186,7 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
                                                   const std::vector<VisionTaskStep> &previous_steps)
 {
     VisionAction action;
-    
+
     try
     {
         // Build context for DeepSeek R1
@@ -195,12 +195,12 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
         context += "Application: " + current_state.application_name + "\n";
         context += "Window Title: " + current_state.window_title + "\n";
         context += "Description: " + current_state.overall_description + "\n\n";
-        
+
         // Add available UI elements
         context += "AVAILABLE UI ELEMENTS:\n";
         for (size_t i = 0; i < current_state.elements.size() && i < 15; i++)
         {
-            const auto& element = current_state.elements[i];
+            const auto &element = current_state.elements[i];
             context += std::to_string(i + 1) + ". " + element.description;
             if (!element.text.empty())
             {
@@ -208,23 +208,24 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
             }
             context += " [" + element.type + "]\n";
         }
-        
+
         // Add previous steps context
         if (!previous_steps.empty())
         {
             context += "\nPREVIOUS STEPS:\n";
             for (size_t i = 0; i < previous_steps.size(); i++)
-            {                context += std::to_string(i + 1) + ". " + previous_steps[i].description;
+            {
+                context += std::to_string(i + 1) + ". " + previous_steps[i].description;
                 context += " - " + std::string(previous_steps[i].success ? "SUCCESS" : "FAILED") + "\n";
             }
         }
-        
+
         context += "\nDetermine the next action to accomplish the task. Focus on the main content area of the application.";
-        
+
         // Call AI Model for vision guidance. This now returns a direct JSON object (the action itself)
         // or a fallback JSON action from callVisionAIModel if it failed.
         json actionJsonFromAI = callVisionAIModel(ai_api_key, context);
-        
+
         if (!actionJsonFromAI.empty() && actionJsonFromAI.contains("action_type"))
         {
             action = createActionFromJson(actionJsonFromAI);
@@ -241,7 +242,7 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
             action.wait_time = 2000; // Increased wait time for such errors
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception &e)
     {
         std::cerr << "❌ Exception in planNextAction: " << e.what() << std::endl; // Log to cerr for errors
         action.type = VisionActionType::WAIT;
@@ -249,7 +250,7 @@ VisionAction VisionGuidedExecutor::planNextAction(const std::string &task,
         action.confidence = 0.1;
         action.wait_time = 2000; // Increased wait time
     }
-    
+
     return action;
 }
 
@@ -552,11 +553,12 @@ VisionAction VisionGuidedExecutor::planTypingAction(const std::string &text,
         action.target_description = "main_text_area";
         action.value = text;
         action.explanation = "Typing '" + text + "' in main application area (fallback)";
-        action.confidence = 0.7;        std::cout << "⚠️ No suitable text element found, using fallback approach" << std::endl;
+        action.confidence = 0.7;
+        std::cout << "⚠️ No suitable text element found, using fallback approach" << std::endl;
     }
 
-std::cout << "📋 Plan: Type '" << text << "' using vision guidance" << std::endl;
-return action;
+    std::cout << "📋 Plan: Type '" << text << "' using vision guidance" << std::endl;
+    return action;
 }
 
 // Plan navigation action
@@ -607,16 +609,17 @@ VisionAction VisionGuidedExecutor::planWaitAction(const std::string &reason, int
 // Find best text input element using vision
 UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &state)
 {
-    // AI-based selection is temporarily removed to focus on generalizing rule-based logic.
-    // std::cout << "🤖 Using AI to find best text input element from " << state.elements.size() << " available elements..." << std::endl;
+    // AI-based selection is temporarily removed to focus on generalizing rule-based logic.    // std::cout << "🤖 Using AI to find best text input element from " << state.elements.size() << " available elements..." << std::endl;
     // try { ... AI call ... } catch { ... fallback ... }
 
     UIElement bestElement;
-    double bestScore = -100.0; // Initialize with a very low score
+    double bestScore = -100.0;   // Initialize with a very low score
+    size_t bestElementIndex = 0; // Track the index for debugging
 
     std::cout << "🔍 Analyzing " << state.elements.size() << " UI elements for best text input (rule-based)..." << std::endl;
-    for (const auto &element : state.elements)
+    for (size_t i = 0; i < state.elements.size(); ++i)
     {
+        const auto &element = state.elements[i];
         double score = 0.0;
 
         std::string type_lower = element.type;
@@ -634,7 +637,7 @@ UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &s
             type_lower.find("statusbar") != std::string::npos ||
             type_lower.find("image") != std::string::npos ||
             type_lower.find("icon") != std::string::npos ||
-            text_lower == "taskbar" || // Exact match for "taskbar"
+            text_lower == "taskbar" ||    // Exact match for "taskbar"
             text_lower == "start button") // Exact match for "start button"
         {
             // std::cout << "   🚫 Excluding non-text/irrelevant element: '" << element.text << "' (type: " << element.type << ")" << std::endl;
@@ -651,13 +654,14 @@ UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &s
             score += 1.5;
         }
         else if (type_lower.find("text") != std::string::npos || // General text, could be static
-                 type_lower.find("input") != std::string::npos) // General input
+                 type_lower.find("input") != std::string::npos)  // General input
         {
             score += 0.5; // Lower score for less specific types
         }
 
         // Penalize elements that are likely buttons or labels but might be misidentified
-        if (type_lower.find("button") != std::string::npos || type_lower.find("label") != std::string::npos) {
+        if (type_lower.find("button") != std::string::npos || type_lower.find("label") != std::string::npos)
+        {
             score -= 0.5;
         }
 
@@ -677,12 +681,15 @@ UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &s
         // Score based on size (larger text areas are often better for content creation)
         // This should be a positive factor if it's a text input type
         int area = element.width * element.height;
-        if (score > 0.0) { // Only apply size bonus if it's already considered an input type
-            if (area > 50000) score += 0.8; // Very large (e.g., document body)
-            else if (area > 10000) score += 0.4; // Medium
-            else if (area > 1000) score += 0.2;  // Small
+        if (score > 0.0)
+        { // Only apply size bonus if it's already considered an input type
+            if (area > 50000)
+                score += 0.8; // Very large (e.g., document body)
+            else if (area > 10000)
+                score += 0.4; // Medium
+            else if (area > 1000)
+                score += 0.2; // Small
         }
-
 
         // Score based on position (center elements often better, but not always for search)
         // Generally, more central elements in an application window are primary interaction areas.
@@ -696,35 +703,37 @@ UIElement VisionGuidedExecutor::findBestTextInputElement(const ScreenAnalysis &s
 
         if (!is_search_box && score > 0.0) // Don't boost search boxes for being central
         {
-             score += 0.3 * (1.0 - std::min(norm_dist, 1.0)); // Boosts elements closer to the center
+            score += 0.3 * (1.0 - std::min(norm_dist, 1.0)); // Boosts elements closer to the center
         }
 
         // Boost if element text is empty (typical for input fields)
-        if (text_lower.empty() && score > 0.0) {
+        if (text_lower.empty() && score > 0.0)
+        {
             score += 0.5;
         }
 
         // Add base confidence from OCR/element detection, scaled
         score += element.confidence * 0.3; // OCR confidence is a factor, but not dominant
 
-        // std::cout << "   📊 Element: '" << element.text << "' (type: " << element.type << ", area: " << area << ") - Score: " << score << std::endl;
-
-        if (score > bestScore)
+        // std::cout << "   📊 Element: '" << element.text << "' (type: " << element.type << ", area: " << area << ") - Score: " << score << std::endl;        if (score > bestScore)
         {
             bestScore = score;
             bestElement = element;
+            bestElementIndex = i; // Track the index
             // The 'confidence' of the bestElement should reflect the scoring here, not just original OCR confidence
             bestElement.confidence = std::max(0.0, std::min(1.0, bestScore / 3.0)); // Normalize score to 0-1 approx.
         }
     }
-
-    if (bestScore > -100.0 && !bestElement.text.empty()) { // Check if any element was actually selected
-         std::cout << "🏆 Rule-based best text input element: '" << bestElement.text
+    if (bestScore > -100.0 && !bestElement.text.empty())
+    { // Check if any element was actually selected
+        std::cout << "🏆 Rule-based best text input element: '" << bestElement.text
                   << "' (Type: " << bestElement.type
-                  << ", Original OCR Conf: " << state.elements.at(std::find(state.elements.begin(), state.elements.end(), bestElement) - state.elements.begin()).confidence // find original confidence
+                  << ", Original OCR Conf: " << state.elements[bestElementIndex].confidence // Use index to get original confidence
                   << ") with calculated score: " << bestScore
                   << ", final confidence: " << bestElement.confidence << std::endl;
-    } else {
+    }
+    else
+    {
         std::cout << "⚠️ No suitable text input element found by rule-based selection." << std::endl;
         bestElement = UIElement(); // Return empty element
         bestElement.confidence = 0.0;
@@ -1606,10 +1615,6 @@ std::string VisionGuidedExecutor::extractMessageText(const std::string &task)
             return greeting;
         }
     }
-
-
-
-
 
     return "Hello"; // Default message
 }

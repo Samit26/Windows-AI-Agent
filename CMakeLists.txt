@@ -103,8 +103,6 @@ endif()
 add_executable(windows_ai_agent_advanced
     main_advanced.cpp
     ai_model.cpp
-    executor.cpp
-    context_manager.cpp
     task_planner.cpp
     advanced_executor.cpp
     multimodal_handler.cpp

@@ -3,7 +3,6 @@
 
 #include "include/json.hpp"
 #include "advanced_executor.h"
-#include "context_manager.h"
 #include "task_planner.h"
 #include "multimodal_handler.h"
 #include <string>
@@ -13,7 +12,8 @@
 
 using json = nlohmann::json;
 
-struct HttpRequest {
+struct HttpRequest
+{
     std::string method;
     std::string path;
     std::string body;
@@ -21,12 +21,14 @@ struct HttpRequest {
     std::map<std::string, std::string> query_params;
 };
 
-struct HttpResponse {
+struct HttpResponse
+{
     int status_code;
     std::string body;
     std::map<std::string, std::string> headers;
-    
-    HttpResponse(int code = 200) : status_code(code) {
+
+    HttpResponse(int code = 200) : status_code(code)
+    {
         headers["Content-Type"] = "application/json";
         headers["Access-Control-Allow-Origin"] = "*";
         headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
@@ -34,62 +36,60 @@ struct HttpResponse {
     }
 };
 
-class HttpServer {
+class HttpServer
+{
 private:
     int port;
     std::atomic<bool> running;
     std::thread server_thread;
-    
     // Backend components
-    AdvancedExecutor* executor;
-    ContextManager* context_manager;
-    TaskPlanner* task_planner;
-    MultiModalHandler* multimodal_handler;
-    VisionProcessor* vision_processor_ptr = nullptr; // Added
-    AdvancedExecutor* advanced_executor_ptr = nullptr; // For clarity, ensure it's present, though 'executor' might be it
+    AdvancedExecutor *executor;
+    TaskPlanner *task_planner;
+    MultiModalHandler *multimodal_handler;
+    VisionProcessor *vision_processor_ptr = nullptr;   // Added
+    AdvancedExecutor *advanced_executor_ptr = nullptr; // For clarity, ensure it's present, though 'executor' might be it
     std::string api_key;
-    
+
     // HTTP handling
-    void handleRequest(const HttpRequest& request, HttpResponse& response);
-    void parseRequest(const std::string& raw_request, HttpRequest& request);
-    std::string buildResponse(const HttpResponse& response);
-    
+    void handleRequest(const HttpRequest &request, HttpResponse &response);
+    void parseRequest(const std::string &raw_request, HttpRequest &request);
+    std::string buildResponse(const HttpResponse &response);
+
     // API endpoints
-    void handleExecuteTask(const json& request_data, HttpResponse& response);
-    void handleGetHistory(const json& request_data, HttpResponse& response);
-    void handleGetSystemInfo(const json& request_data, HttpResponse& response);
-    void handleUpdatePreferences(const json& request_data, HttpResponse& response);
-    void handleGetActiveProcesses(const json& request_data, HttpResponse& response);
-    void handleRollback(const json& request_data, HttpResponse& response);
-    void handleGetSuggestions(const json& request_data, HttpResponse& response);
-    void handleVoiceInput(const json& request_data, HttpResponse& response);
-    void handleImageInput(const json& request_data, HttpResponse& response);
-    
+    void handleExecuteTask(const json &request_data, HttpResponse &response);
+    void handleGetHistory(const json &request_data, HttpResponse &response);
+    void handleGetSystemInfo(const json &request_data, HttpResponse &response);
+    void handleUpdatePreferences(const json &request_data, HttpResponse &response);
+    void handleGetActiveProcesses(const json &request_data, HttpResponse &response);
+    void handleRollback(const json &request_data, HttpResponse &response);
+    void handleGetSuggestions(const json &request_data, HttpResponse &response);
+    void handleVoiceInput(const json &request_data, HttpResponse &response);
+    void handleImageInput(const json &request_data, HttpResponse &response);
+
     // Vision task handling
-    bool isVisionTask(const std::string& input); // This seems more like a helper for general task execution
-    json handleVisionTaskRequest(const std::string& input); // This seems more like a helper for general task execution
-    
-    // New API Handlers for Vision
-    void handleApiVisionAnalyzeScreen(const httplib::Request &req, httplib::Response &res);
-    void handleApiVisionExecuteAction(const httplib::Request &req, httplib::Response &res);
+    bool isVisionTask(const std::string &input);            // This seems more like a helper for general task execution
+    json handleVisionTaskRequest(const std::string &input); // This seems more like a helper for general task execution
+                                                            // New API Handlers for Vision - removed httplib references
+    // void handleApiVisionAnalyzeScreen(...);
+    // void handleApiVisionExecuteAction(...);
 
 public:
     HttpServer(int port = 8080);
     ~HttpServer();
-    
+
     // Configuration
-    void setComponents(AdvancedExecutor* adv_exec, ContextManager* ctx_mgr,
-                      TaskPlanner* planner, MultiModalHandler* mm_handler,
-                      VisionProcessor* vp, const std::string& key);
-    
+    void setComponents(AdvancedExecutor *adv_exec,
+                       TaskPlanner *planner, MultiModalHandler *mm_handler,
+                       VisionProcessor *vp, const std::string &key);
+
     // Server control
     bool start();
     void stop();
     bool isRunning() const;
-    
+
     // Utility
-    static std::string urlDecode(const std::string& str);
-    static std::map<std::string, std::string> parseQueryString(const std::string& query);
+    static std::string urlDecode(const std::string &str);
+    static std::map<std::string, std::string> parseQueryString(const std::string &query);
 };
 
 #endif // HTTP_SERVER_H

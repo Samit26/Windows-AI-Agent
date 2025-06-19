@@ -128,7 +128,8 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
                                   "- For `generate_content_and_execute`, the `content_generation_prompt` should be specific for an LLM, and `subsequent_action` must be a valid action type.\n"
                                   "- For `multi_step_plan`, each item in `steps` must be a complete and valid JSON action definition.\n"
                                   "- Never hardcode user-specific paths. Use general methods.\n\n"
-                                  "User task: " + user_prompt;
+                                  "User task: " +
+                                  user_prompt;
     json request_body = {
         {"model", "deepseek/deepseek-r1-0528-qwen3-8b:free"}, // Consider updating model if needed for complex planning
         {"messages", {{{"role", "user"}, {"content", enhanced_prompt}}}}};
@@ -186,11 +187,15 @@ json callAIModel(const std::string &api_key, const std::string &user_prompt)
                     // If type is something else, but it's still valid JSON, it might be an error or unexpected.
                     std::cerr << "callAIModel: Received valid JSON but with an unrecognized primary type: "
                               << response_main_type << ". Response: " << parsed_json.dump(2) << std::endl;
-                } else if (parsed_json.empty()) {
-                     std::cerr << "callAIModel: extractJsonFromString returned empty JSON. Original text: " << deepseek_text << std::endl;
-                } else { // Not empty, but no "type" field
-                     std::cerr << "callAIModel: Parsed JSON is missing 'type' field. Original text: " << deepseek_text
-                               << ". Parsed JSON: " << parsed_json.dump(2) << std::endl;
+                }
+                else if (parsed_json.empty())
+                {
+                    std::cerr << "callAIModel: extractJsonFromString returned empty JSON. Original text: " << deepseek_text << std::endl;
+                }
+                else
+                { // Not empty, but no "type" field
+                    std::cerr << "callAIModel: Parsed JSON is missing 'type' field. Original text: " << deepseek_text
+                              << ". Parsed JSON: " << parsed_json.dump(2) << std::endl;
                 }
                 // Fallback: if not a recognized structured type, if "type" is missing, or if JSON parsing failed (parsed_json is empty)
                 return json{{"type", "text"}, {"content", deepseek_text}};
@@ -474,10 +479,8 @@ std::string callLLMForTextGeneration(const std::string &api_key, const std::stri
 
     json request_body = {
         {"model", "deepseek/deepseek-r1-0528-qwen3-8b:free"}, // Or any other suitable model for text generation
-        {"messages", json::array({
-            {{"role", "system"}, {"content", system_prompt_text_gen}},
-            {{"role", "user"}, {"content", text_generation_prompt}}
-        })},
+        {"messages", json::array({{{"role", "system"}, {"content", system_prompt_text_gen}},
+                                  {{"role", "user"}, {"content", text_generation_prompt}}})},
         {"temperature", 0.7} // Adjust temperature for creativity as needed
     };
 
@@ -617,7 +620,6 @@ json callVisionAI(const std::string &api_key, const std::string &task, const std
 
                 // This function `callVisionAI` seems to have a different JSON structure expectation
                 // than `callVisionAIModel`. It expects the direct action JSON.
-                std::string content = choice["message"]["content"];
                 json extracted_json = extractJsonFromString(content);
                 // If extraction fails, extractJsonFromString logs and returns empty json::object()
                 // If content was present but parsing failed, extractJsonFromString already logged it.

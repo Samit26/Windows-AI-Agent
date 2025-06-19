@@ -28,12 +28,11 @@ private:
     bool server_mode;
 
 public:
-    AdvancedAIAgent() :
-        interactive_mode(true),
-        learning_enabled(true),
-        server_mode(false),
-        http_server(8080),
-        task_planner("") // Initialize with empty key, will be set in loadConfiguration
+    AdvancedAIAgent() : interactive_mode(true),
+                        learning_enabled(true),
+                        server_mode(false),
+                        http_server(8080),
+                        task_planner("") // Initialize with empty key, will be set in loadConfiguration
     {
         loadConfiguration(); // api_key is loaded here, then task_planner is re-initialized
         displayWelcomeMessage();
@@ -54,9 +53,12 @@ public:
         }
 
         json config;
-        try {
+        try
+        {
             config_file >> config;
-        } catch (const json::parse_error& e) {
+        }
+        catch (const json::parse_error &e)
+        {
             std::cerr << "❌ Error: Failed to parse config_advanced.json. Malformed JSON: " << e.what() << std::endl;
             exit(1);
         }
@@ -103,11 +105,10 @@ public:
             server_mode = config["server_mode"];
         }
 
-        // Configure HTTP server if needed
-        if (server_mode)
+        // Configure HTTP server if needed        if (server_mode)
         {
-            VisionProcessor* vp = multimodal_handler.getVisionProcessor();
-            http_server.setComponents(&advanced_executor, nullptr /* &context_manager removed */,
+            VisionProcessor *vp = multimodal_handler.getVisionProcessor();
+            http_server.setComponents(&advanced_executor,
                                       &task_planner, &multimodal_handler,
                                       vp, api_key);
         }
@@ -158,14 +159,16 @@ public:
             json response = callAIModel(api_key, contextual_prompt);
 
             // Enhanced Error Handling for AI Response
-            if (response.empty() || response.is_null()) {
+            if (response.empty() || response.is_null())
+            {
                 std::cerr << "❌ Error in processUserInput: AI model returned an empty or invalid JSON response." << std::endl;
                 // Optionally, inform the user if this is a critical failure path
                 // std::cout << "⚠️ AI service seems to be having issues. Please try again later." << std::endl;
                 return;
             }
 
-            if (!response.contains("type")) {
+            if (!response.contains("type"))
+            {
                 std::cerr << "❌ Error in processUserInput: AI response JSON does not contain a 'type' field. Response: "
                           << response.dump(2) << std::endl;
                 std::cout << "⚠️ AI response was not in the expected format. The response was: " << response.dump(2) << std::endl;
@@ -177,7 +180,8 @@ public:
 
             if (response_type == "powershell_script")
             {
-                if (!response.contains("script")) {
+                if (!response.contains("script"))
+                {
                     std::cerr << "❌ Error in processUserInput: PowerShell script task is missing 'script' field. Response: "
                               << response.dump(2) << std::endl;
                     std::cout << "⚠️ AI response for PowerShell script was malformed (missing 'script')." << std::endl;
@@ -216,16 +220,18 @@ public:
             {
                 // This block handles when callAIModel *directly* identifies a vision_task,
                 // bypassing the isVisionTask() -> callIntentAI() path.
-                if (!response.contains("objective")) {
-                     std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing 'objective' field. Response: "
-                               << response.dump(2) << std::endl;
-                     // If objective is critical and cannot be defaulted to 'input', consider returning.
-                     // For now, it defaults to 'input' via .value("objective", input) below.
+                if (!response.contains("objective"))
+                {
+                    std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing 'objective' field. Response: "
+                              << response.dump(2) << std::endl;
+                    // If objective is critical and cannot be defaulted to 'input', consider returning.
+                    // For now, it defaults to 'input' via .value("objective", input) below.
                 }
-                if (!response.contains("initial_action") && !response.contains("objective")) {
-                     std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing both 'initial_action' and 'objective'. Response: "
-                               << response.dump(2) << std::endl;
-                     // This task might be too vague to proceed.
+                if (!response.contains("initial_action") && !response.contains("objective"))
+                {
+                    std::cerr << "⚠️ Warning in processUserInput: Vision task from callAIModel is missing both 'initial_action' and 'objective'. Response: "
+                              << response.dump(2) << std::endl;
+                    // This task might be too vague to proceed.
                 }
 
                 // Handle vision task - first execute initial action if present
@@ -237,8 +243,7 @@ public:
                     json launch_task = {
                         {"type", "powershell_script"},
                         {"script", {initial_cmd}},
-                        {"explanation", "Launching required application for vision task"}
-                    };
+                        {"explanation", "Launching required application for vision task"}};
 
                     TaskPlan launch_plan = task_planner.planTask("Launch application for vision task", launch_task);
                     ExecutionResult launch_result = advanced_executor.executeWithPlan(launch_plan);
@@ -257,16 +262,20 @@ public:
             else // Handles "text" type or any other unknown types
             {
                 std::string content = response.value("content", "");
-                if (content.empty() && response_type != "text") {
-                     std::cerr << "⚠️ Warning in processUserInput: AI response type '" << response_type
-                               << "' but 'content' field is missing or empty. Response: " << response.dump(2) << std::endl;
-                     std::cout << "💬 AI Response: Received an unusual response type '" << response_type << "' without content." << std::endl;
-                } else if (content.empty() && response_type == "text") {
-                     std::cerr << "⚠️ Warning in processUserInput: AI response type 'text' but 'content' is empty. Response: "
-                               << response.dump(2) << std::endl;
-                     std::cout << "💬 AI returned an empty text response." << std::endl;
+                if (content.empty() && response_type != "text")
+                {
+                    std::cerr << "⚠️ Warning in processUserInput: AI response type '" << response_type
+                              << "' but 'content' field is missing or empty. Response: " << response.dump(2) << std::endl;
+                    std::cout << "💬 AI Response: Received an unusual response type '" << response_type << "' without content." << std::endl;
                 }
-                else {
+                else if (content.empty() && response_type == "text")
+                {
+                    std::cerr << "⚠️ Warning in processUserInput: AI response type 'text' but 'content' is empty. Response: "
+                              << response.dump(2) << std::endl;
+                    std::cout << "💬 AI returned an empty text response." << std::endl;
+                }
+                else
+                {
                     std::cout << "💬 AI Response: " << content << std::endl;
                 }
                 // context_manager.addToHistory(input, response.dump(), response_type, true); // Removed
@@ -389,19 +398,22 @@ public:
             std::cout << "⚠️ Error: " << result.error_message << std::endl;
         }
         std::cout << "⏱️ Execution time: " << result.execution_time << "s" << std::endl;
-    }    bool isVisionTask(const std::string &input)
+    }
+    bool isVisionTask(const std::string &input)
     {
         // Use AI to dynamically determine if this is a vision task
         try
         {
             json intent = callIntentAI(api_key, input);
 
-            if (intent.empty() || intent.is_null()) {
+            if (intent.empty() || intent.is_null())
+            {
                 std::cerr << "⚠️ Warning in isVisionTask: AI intent analysis returned empty or null JSON. Defaulting to non-vision task. Raw input: " << input << std::endl;
                 return false; // Default to non-vision task
             }
 
-            if (!intent.contains("is_vision_task")) {
+            if (!intent.contains("is_vision_task"))
+            {
                 std::cerr << "⚠️ Warning in isVisionTask: AI intent JSON is missing 'is_vision_task' field. Defaulting to non-vision task. Intent: "
                           << intent.dump(2) << std::endl;
                 return false; // Default to non-vision task
@@ -411,7 +423,7 @@ public:
             double confidence = intent.value("confidence", 0.5);
 
             std::cout << "🤖 AI Intent Analysis: " << (is_vision ? "Vision Task" : "Regular Task")
-                        << " (confidence: " << (confidence * 100) << "%)" << std::endl;
+                      << " (confidence: " << (confidence * 100) << "%)" << std::endl;
 
             return is_vision;
         }
@@ -438,7 +450,7 @@ public:
             displayVisionTaskResult(result, input);
 
             // Add to context
-                    // context_manager.addToHistory(input, result.output, "vision_task", result.success); // Removed
+            // context_manager.addToHistory(input, result.output, "vision_task", result.success); // Removed
         }
         catch (const std::exception &e)
         {
